@@ -1,0 +1,4 @@
+.worktrees/
+backend/.venv/
+backend/data/
+frontend/node_modules/
