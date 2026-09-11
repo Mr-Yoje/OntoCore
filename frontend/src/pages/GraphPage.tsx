@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
-import { ApiError, api } from "../api";
+import { api } from "../api";
 import { InstanceNetwork } from "../components/InstanceNetwork";
+import { tipText, useTip } from "../tips";
 
 type GraphNode = {
   onto_iri: string;
@@ -21,15 +22,14 @@ type GraphRel = {
 type GraphNet = { nodes: GraphNode[]; edges: GraphRel[] };
 
 export function GraphPage() {
+  const showTip = useTip();
   const [typeIri, setTypeIri] = useState("");
   const [network, setNetwork] = useState<GraphNet>({ nodes: [], edges: [] });
   const [objects, setObjects] = useState<{ iri: string; label: string }[]>([]);
   const [selected, setSelected] = useState<GraphNode | null>(null);
   const [selectedRel, setSelectedRel] = useState<GraphRel | null>(null);
-  const [error, setError] = useState("");
 
   const load = useCallback(async () => {
-    setError("");
     try {
       const [net, objs] = await Promise.all([
         api.graphNetwork(typeIri || undefined) as Promise<GraphNet>,
@@ -38,9 +38,9 @@ export function GraphPage() {
       setNetwork(net);
       setObjects(objs);
     } catch (e) {
-      setError(e instanceof ApiError ? e.detail : String(e));
+      showTip("error", tipText(e));
     }
-  }, [typeIri]);
+  }, [typeIri, showTip]);
 
   useEffect(() => {
     void load();
@@ -53,7 +53,7 @@ export function GraphPage() {
       setSelected(null);
       await load();
     } catch (e) {
-      setError(e instanceof ApiError ? e.detail : String(e));
+      showTip("error", tipText(e));
     }
   }
 
@@ -64,7 +64,7 @@ export function GraphPage() {
       setSelectedRel(null);
       await load();
     } catch (e) {
-      setError(e instanceof ApiError ? e.detail : String(e));
+      showTip("error", tipText(e));
     }
   }
 
@@ -87,7 +87,6 @@ export function GraphPage() {
           </select>
         </label>
       </header>
-      {error ? <p className="error">{error}</p> : null}
       <section className="panel panel-canvas">
         <InstanceNetwork
           nodes={network.nodes.map((n) => ({ iri: n.onto_iri, label: n.onto_label }))}

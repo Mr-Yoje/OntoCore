@@ -1,5 +1,6 @@
 import { FormEvent, useEffect, useState } from "react";
-import { ApiError, api, exportJsonldHref, exportTurtleHref, type ProviderDraft } from "../api";
+import { api, exportJsonldHref, exportTurtleHref, type ProviderDraft } from "../api";
+import { tipText, useTip } from "../tips";
 
 type Provider = ProviderDraft & { id: string };
 
@@ -12,14 +13,13 @@ function vendorKey(row: ProviderDraft, index: number) {
 }
 
 export function SettingsPage() {
+  const showTip = useTip();
   const [providers, setProviders] = useState<ProviderDraft[]>([blankProvider()]);
   const [catalogs, setCatalogs] = useState<Record<string, string[]>>({});
   const [probeModels, setProbeModels] = useState<Record<string, string>>({});
   const [probeThinking, setProbeThinking] = useState(false);
   const [ttl, setTtl] = useState("");
   const [force, setForce] = useState(false);
-  const [message, setMessage] = useState("");
-  const [error, setError] = useState("");
   const [testing, setTesting] = useState<number | null>(null);
   const [loadingModels, setLoadingModels] = useState<number | null>(null);
 
@@ -30,8 +30,8 @@ export function SettingsPage() {
         const body = s as { providers?: Provider[] };
         if (body.providers && body.providers.length) setProviders(body.providers);
       })
-      .catch((e) => setError(e instanceof ApiError ? e.detail : String(e)));
-  }, []);
+      .catch((e) => showTip("error", tipText(e)));
+  }, [showTip]);
 
   function updateProvider(index: number, patch: Partial<ProviderDraft>) {
     setProviders((rows) => rows.map((row, i) => (i === index ? { ...row, ...patch } : row)));
@@ -40,8 +40,6 @@ export function SettingsPage() {
   async function fetchModels(index: number) {
     const row = providers[index];
     if (!row) return;
-    setError("");
-    setMessage("");
     setLoadingModels(index);
     try {
       const result = await api.listSettingsModels({
@@ -56,9 +54,9 @@ export function SettingsPage() {
         ...prev,
         [key]: result.models.includes(prev[key]) ? prev[key] : result.models[0] ?? "",
       }));
-      setMessage(`已拉取 ${result.models.length} 个模型`);
+      showTip("ok", `已拉取 ${result.models.length} 个模型`);
     } catch (e) {
-      setError(e instanceof ApiError ? e.detail : String(e));
+      showTip("error", tipText(e));
     } finally {
       setLoadingModels(null);
     }
@@ -66,7 +64,6 @@ export function SettingsPage() {
 
   async function save(ev: FormEvent) {
     ev.preventDefault();
-    setError("");
     try {
       const saved = (await api.putSettings({
         providers: providers
@@ -95,9 +92,9 @@ export function SettingsPage() {
         });
         return mapped;
       });
-      setMessage("已保存供应商");
+      showTip("ok", "已保存供应商");
     } catch (e) {
-      setError(e instanceof ApiError ? e.detail : String(e));
+      showTip("error", tipText(e));
     }
   }
 
@@ -107,11 +104,9 @@ export function SettingsPage() {
     const key = vendorKey(row, index);
     const model = probeModels[key]?.trim() ?? "";
     if (!model) {
-      setError("请先拉取模型列表，再选择测试用模型");
+      showTip("error", "请先拉取模型列表，再选择测试用模型");
       return;
     }
-    setError("");
-    setMessage("");
     setTesting(index);
     try {
       const result = (await api.testSettings({
@@ -122,9 +117,9 @@ export function SettingsPage() {
         model,
         thinking: probeThinking,
       })) as { ok?: boolean; model?: string };
-      setMessage(result.ok ? `联通成功：${result.model}` : "联通成功");
+      showTip("ok", result.ok ? `联通成功：${result.model}` : "联通成功");
     } catch (e) {
-      setError(e instanceof ApiError ? e.detail : String(e));
+      showTip("error", tipText(e));
     } finally {
       setTesting(null);
     }
@@ -132,12 +127,11 @@ export function SettingsPage() {
 
   async function doImport(ev: FormEvent) {
     ev.preventDefault();
-    setError("");
     try {
       await api.importOntology(ttl, force);
-      setMessage("导入完成");
+      showTip("ok", "导入完成");
     } catch (e) {
-      setError(e instanceof ApiError ? e.detail : String(e));
+      showTip("error", tipText(e));
     }
   }
 
@@ -152,8 +146,6 @@ export function SettingsPage() {
       <div className="settings-stack">
         <section className="stack">
           <h2>供应商</h2>
-          {error ? <p className="error">{error}</p> : null}
-          {message ? <p className="ok">{message}</p> : null}
           <p className="muted">
             这里只登记供应商的地址和密钥。抽取器和具体模型在上传页选择。
           </p>

@@ -1,6 +1,7 @@
 import { FormEvent, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { ApiError, api } from "../api";
+import { api } from "../api";
+import { tipText, useTip } from "../tips";
 
 type TypeCandidate = {
   id: string;
@@ -11,12 +12,12 @@ type TypeCandidate = {
 };
 
 export function ReviewPage() {
+  const showTip = useTip();
   const [params, setParams] = useSearchParams();
   const jobFromQuery = params.get("job") ?? "";
   const [jobId, setJobId] = useState(jobFromQuery);
   const [candidates, setCandidates] = useState<TypeCandidate[]>([]);
   const [projectResult, setProjectResult] = useState<unknown>(null);
-  const [error, setError] = useState("");
 
   const proposed = useMemo(
     () => candidates.filter((c) => c.status === "proposed"),
@@ -25,13 +26,12 @@ export function ReviewPage() {
 
   async function load(ev?: FormEvent) {
     ev?.preventDefault();
-    setError("");
     setParams({ job: jobId });
     try {
       const rows = (await api.typeCandidates(jobId)) as TypeCandidate[];
       setCandidates(rows);
     } catch (e) {
-      setError(e instanceof ApiError ? e.detail : String(e));
+      showTip("error", tipText(e));
     }
   }
 
@@ -42,7 +42,7 @@ export function ReviewPage() {
       const rows = (await api.typeCandidates(jobId)) as TypeCandidate[];
       setCandidates(rows);
     } catch (e) {
-      setError(e instanceof ApiError ? e.detail : String(e));
+      showTip("error", tipText(e));
     }
   }
 
@@ -50,8 +50,9 @@ export function ReviewPage() {
     try {
       const result = await api.projectJob(jobId);
       setProjectResult(result);
+      showTip("ok", "已投影到图");
     } catch (e) {
-      setError(e instanceof ApiError ? e.detail : String(e));
+      showTip("error", tipText(e));
     }
   }
 
@@ -72,7 +73,6 @@ export function ReviewPage() {
           </label>
           <button type="submit">加载候选</button>
         </form>
-        {error ? <p className="error">{error}</p> : null}
         <table>
           <thead>
             <tr>

@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ApiError, api, type ProviderDraft } from "../api";
+import { api, type ProviderDraft } from "../api";
+import { tipText, useTip } from "../tips";
 
 type Job = {
   id: string;
@@ -13,6 +14,7 @@ type Job = {
 
 export function UploadPage() {
   const navigate = useNavigate();
+  const showTip = useTip();
   const [file, setFile] = useState<File | null>(null);
   const [extractor, setExtractor] = useState("hybrid");
   const [providers, setProviders] = useState<ProviderDraft[]>([]);
@@ -21,7 +23,6 @@ export function UploadPage() {
   const [model, setModel] = useState("");
   const [thinking, setThinking] = useState(false);
   const [job, setJob] = useState<Job | null>(null);
-  const [error, setError] = useState("");
   const [loadingModels, setLoadingModels] = useState(false);
 
   useEffect(() => {
@@ -32,8 +33,8 @@ export function UploadPage() {
         setProviders(rows);
         if (rows[0]?.id) setProviderId(rows[0].id);
       })
-      .catch((e) => setError(e instanceof ApiError ? e.detail : String(e)));
-  }, []);
+      .catch((e) => showTip("error", tipText(e)));
+  }, [showTip]);
 
   useEffect(() => {
     if (!providerId) {
@@ -42,7 +43,6 @@ export function UploadPage() {
       return;
     }
     setLoadingModels(true);
-    setError("");
     void api
       .listSettingsModels({ provider_id: providerId })
       .then((result) => {
@@ -52,17 +52,16 @@ export function UploadPage() {
       .catch((e) => {
         setModels([]);
         setModel("");
-        setError(e instanceof ApiError ? e.detail : String(e));
+        showTip("error", tipText(e));
       })
       .finally(() => setLoadingModels(false));
-  }, [providerId]);
+  }, [providerId, showTip]);
 
   const needsModel = extractor !== "rules_only";
 
   async function onSubmit(ev: FormEvent) {
     ev.preventDefault();
     if (!file) return;
-    setError("");
     try {
       const created = (await api.createJob(file, {
         extractor,
@@ -71,8 +70,10 @@ export function UploadPage() {
         thinking: needsModel ? thinking : false,
       })) as Job;
       setJob(created);
+      if (created.error) showTip("error", created.error);
+      else showTip("ok", `作业已创建：${created.status}`);
     } catch (e) {
-      setError(e instanceof ApiError ? e.detail : String(e));
+      showTip("error", tipText(e));
     }
   }
 
@@ -152,12 +153,10 @@ export function UploadPage() {
           )}
           <button type="submit">开始抽取</button>
         </form>
-        {error ? <p className="error">{error}</p> : null}
         {job ? (
           <div className="inspector stack">
             <h2>作业 {job.id}</h2>
             <p>状态：{job.status}</p>
-            {job.error ? <p className="error">{job.error}</p> : null}
             <button type="button" onClick={() => navigate(`/review?job=${encodeURIComponent(job.id)}`)}>
               去审阅
             </button>

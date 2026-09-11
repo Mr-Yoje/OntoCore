@@ -1,6 +1,7 @@
 import { FormEvent, useCallback, useEffect, useState } from "react";
-import { ApiError, api, localName } from "../api";
+import { api, localName } from "../api";
 import { TypeNetwork } from "../components/TypeNetwork";
+import { tipText, useTip } from "../tips";
 
 type OntoObject = {
   iri: string;
@@ -39,12 +40,12 @@ type TypeNet = {
 };
 
 export function OntologyPage() {
+  const showTip = useTip();
   const [objects, setObjects] = useState<OntoObject[]>([]);
   const [relations, setRelations] = useState<OntoRelation[]>([]);
   const [attributes, setAttributes] = useState<OntoAttribute[]>([]);
   const [network, setNetwork] = useState<TypeNet>({ nodes: [], edges: [] });
   const [selectedIri, setSelectedIri] = useState<string | null>(null);
-  const [error, setError] = useState("");
 
   const [label, setLabel] = useState("");
   const [definition, setDefinition] = useState("");
@@ -71,7 +72,6 @@ export function OntologyPage() {
   const [editParent, setEditParent] = useState("");
 
   const refresh = useCallback(async () => {
-    setError("");
     try {
       const [objs, rels, net] = await Promise.all([
         api.listObjects() as Promise<OntoObject[]>,
@@ -88,9 +88,9 @@ export function OntologyPage() {
         setAttributes([]);
       }
     } catch (e) {
-      setError(e instanceof ApiError ? e.detail : String(e));
+      showTip("error", tipText(e));
     }
-  }, [selectedIri]);
+  }, [selectedIri, showTip]);
 
   useEffect(() => {
     void refresh();
@@ -114,7 +114,7 @@ export function OntologyPage() {
       });
       await refresh();
     } catch (e) {
-      setError(e instanceof ApiError ? e.detail : String(e));
+      showTip("error", tipText(e));
     }
   }
 
@@ -125,7 +125,7 @@ export function OntologyPage() {
       setSelectedIri(null);
       await refresh();
     } catch (e) {
-      setError(e instanceof ApiError ? e.detail : String(e));
+      showTip("error", tipText(e));
     }
   }
 
@@ -164,7 +164,7 @@ export function OntologyPage() {
       setSelectedIri(created.iri);
       await refresh();
     } catch (e) {
-      setError(e instanceof ApiError ? e.detail : String(e));
+      showTip("error", tipText(e));
       if (createdIri) {
         setLabel("");
         setDefinition("");
@@ -201,7 +201,7 @@ export function OntologyPage() {
       setAttrLocal("");
       await refresh();
     } catch (e) {
-      setError(e instanceof ApiError ? e.detail : String(e));
+      showTip("error", tipText(e));
     }
   }
 
@@ -220,7 +220,7 @@ export function OntologyPage() {
       setRelLocal("");
       await refresh();
     } catch (e) {
-      setError(e instanceof ApiError ? e.detail : String(e));
+      showTip("error", tipText(e));
     }
   }
 
@@ -237,7 +237,6 @@ export function OntologyPage() {
       <div className="stack">
         <section className="panel stack">
           <h2>对象</h2>
-          {error ? <p className="error">{error}</p> : null}
           <ul className="entity-list">
             {objects.map((o) => (
               <li key={o.iri}>
@@ -407,7 +406,7 @@ export function OntologyPage() {
                             await api.deleteAttribute(localName(a.iri));
                             await refresh();
                           } catch (e) {
-                            setError(e instanceof ApiError ? e.detail : String(e));
+                            showTip("error", tipText(e));
                           }
                         }}
                       >
@@ -471,7 +470,7 @@ export function OntologyPage() {
                           await api.deleteRelation(localName(r.iri));
                           await refresh();
                         } catch (e) {
-                          setError(e instanceof ApiError ? e.detail : String(e));
+                          showTip("error", tipText(e));
                         }
                       }}
                     >

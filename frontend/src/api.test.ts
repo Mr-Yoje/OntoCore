@@ -68,4 +68,25 @@ describe("copy", () => {
     expect(t.includes("供应商")).toBe(true);
     expect(t.includes("listSettingsModels")).toBe(true);
   });
+
+  it("shows flash messages as popup tips", () => {
+    const app = readFileSync("src/App.tsx", "utf8");
+    const tips = readFileSync("src/tips.tsx", "utf8");
+    expect(app.includes("TipHost")).toBe(true);
+    expect(tips.includes("tip-stack")).toBe(true);
+    expect(tips.includes("showTip")).toBe(true);
+    const pages = [
+      "src/pages/OntologyPage.tsx",
+      "src/pages/SettingsPage.tsx",
+      "src/pages/UploadPage.tsx",
+      "src/pages/ReviewPage.tsx",
+      "src/pages/GraphPage.tsx",
+    ];
+    for (const f of pages) {
+      const t = readFileSync(f, "utf8");
+      expect(t.includes("useTip"), f).toBe(true);
+      expect(t.includes('className="error"'), f).toBe(false);
+      expect(t.includes('className="ok"'), f).toBe(false);
+    }
+  });
 });

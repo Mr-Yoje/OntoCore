@@ -4,6 +4,7 @@ import { OntologyPage } from "./pages/OntologyPage";
 import { ReviewPage } from "./pages/ReviewPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { UploadPage } from "./pages/UploadPage";
+import { TipHost } from "./tips";
 
 function Icon({ path }: { path: string }) {
   return (
@@ -44,6 +45,7 @@ const links: { to: string; label: string; icon: string; end?: boolean }[] = [
 
 export function App() {
   return (
+    <TipHost>
     <div className="shell">
       <aside className="rail">
         <div className="brand">
@@ -75,5 +77,6 @@ export function App() {
         </Routes>
       </div>
     </div>
+    </TipHost>
   );
 }
