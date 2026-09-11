@@ -8,8 +8,6 @@
 - 日常：在 `main` 上改 → 自测 → 提交 → `git push origin main`。
 - 工作区只保留正在做的那一件事，做完就提交，不要攒。
 
-本仓库远程目前仍是 `master`。迁到 `main` 只需一次：把本地分支改名、推送 `main`、在 GitHub 把默认分支设为 `main`、再删远程 `master`。确认推送后再做这一步。
-
 ## 提交
 
 用精简 Conventional Commits（不必写 scope、不必写 body）：

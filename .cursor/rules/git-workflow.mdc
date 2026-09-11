@@ -7,8 +7,7 @@ alwaysApply: true
 
 本仓库按常见个人项目方式协作，不为流程开分支。
 
-- 主干是 `main`（远程尚未改名时仍在 `master` 上工作，迁名需用户确认推送）。
-- 做完一件能一句话说清的事就提交并推送，不要在工作区攒多件事。
+- 主干是 `main`。做完一件能一句话说清的事就提交并推送，不要在工作区攒多件事。
 - 提交用精简 Conventional Commits：`feat:` / `fix:` / `docs:` / `refactor:` / `style:` / `chore:`，一次一件事。
 - 默认不开功能分支，不设 develop / release / hotfix，不强制 PR。
 - 不提交密钥、`backend/data/`、`.venv`、`node_modules`、`__pycache__`、`*.egg-info`、`.env`。
