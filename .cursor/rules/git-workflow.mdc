@@ -1,0 +1,16 @@
+---
+description: 本仓库采用的个人维护 Git 规范（主干 main、原子提交）
+alwaysApply: true
+---
+
+# Git（个人维护规范）
+
+本仓库按常见个人项目方式协作，不为流程开分支。
+
+- 主干是 `main`（远程尚未改名时仍在 `master` 上工作，迁名需用户确认推送）。
+- 做完一件能一句话说清的事就提交并推送，不要在工作区攒多件事。
+- 提交用精简 Conventional Commits：`feat:` / `fix:` / `docs:` / `refactor:` / `style:` / `chore:`，一次一件事。
+- 默认不开功能分支，不设 develop / release / hotfix，不强制 PR。
+- 不提交密钥、`backend/data/`、`.venv`、`node_modules`、`__pycache__`、`*.egg-info`、`.env`。
+- 用户没说「提交」或「推送」时不要 commit / push。禁止对已推送主干 force push，除非用户明确要求。
+- 提交前跑相关测试，测试不通过不可提交；改界面就在浏览器核对。产品文案只用对象、属性、关系、定义、实例、父对象。

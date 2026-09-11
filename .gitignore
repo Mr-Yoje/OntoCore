@@ -1,4 +1,14 @@
 .worktrees/
+.DS_Store
+Thumbs.db
+.env
+.env.*
 backend/.venv/
 backend/data/
+backend/.pytest_cache/
 frontend/node_modules/
+**/__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+

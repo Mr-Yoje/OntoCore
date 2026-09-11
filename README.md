@@ -44,6 +44,10 @@ npm run dev
 
 浏览器打开 Vite 地址（默认代理 `/api` 到 `http://127.0.0.1:8001`）。
 
+## Git
+
+个人维护约定：主干开发、做完即提交、精简 Conventional Commits，不为流程开分支。说明见 [`docs/git-workflow.md`](docs/git-workflow.md)。
+
 ## 演示路径
 
 1. 设置抽取器为 `rules_only`（或配置好模型后用 `hybrid`）。
