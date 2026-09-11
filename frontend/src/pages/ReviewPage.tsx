@@ -57,9 +57,15 @@ export function ReviewPage() {
 
   return (
     <main className="page">
+      <header className="page-head">
+        <div>
+          <h1>审阅</h1>
+          <p className="kicker">确认抽取结果后再写入</p>
+        </div>
+        {proposed.length ? <p className="muted">未处理 {proposed.length}</p> : null}
+      </header>
       <section className="panel stack">
-        <h2>审阅</h2>
-        <form className="stack" onSubmit={load}>
+        <form className="stack" onSubmit={load} style={{ maxWidth: 420 }}>
           <label>
             作业编号
             <input value={jobId} onChange={(e) => setJobId(e.target.value)} required />
@@ -88,23 +94,25 @@ export function ReviewPage() {
                 <td>{c.status}</td>
                 <td>
                   {c.status === "proposed" ? (
-                    <>
+                    <div className="actions">
                       <button type="button" onClick={() => act(c.id, true)}>
                         接受
                       </button>
-                      <button type="button" onClick={() => act(c.id, false)}>
+                      <button type="button" className="btn-ghost" onClick={() => act(c.id, false)}>
                         拒绝
                       </button>
-                    </>
+                    </div>
                   ) : null}
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
-        <button type="button" onClick={project} disabled={!jobId}>
-          投影到图
-        </button>
+        <div className="actions">
+          <button type="button" onClick={project} disabled={!jobId}>
+            投影到图
+          </button>
+        </div>
         {proposed.length ? <p className="muted">仍有未处理候选 {proposed.length} 条</p> : null}
         {projectResult ? <pre className="muted">{JSON.stringify(projectResult, null, 2)}</pre> : null}
       </section>

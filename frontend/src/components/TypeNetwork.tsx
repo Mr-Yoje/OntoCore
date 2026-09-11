@@ -36,15 +36,15 @@ function NetworkSvg({
   const width = 640;
   const height = 480;
   if (nodes.length === 0) {
-    return <p className="muted">{emptyText}</p>;
+    return <p className="muted" style={{ padding: "2rem", color: "var(--text)" }}>{emptyText}</p>;
   }
   const points = layout(nodes.length, width, height);
   const byIri = new Map(nodes.map((n, i) => [n.iri, points[i]!]));
   return (
     <svg className="network" viewBox={`0 0 ${width} ${height}`}>
       <defs>
-        <marker id="arrow" viewBox="0 0 10 10" refX="16" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-          <path d="M 0 0 L 10 5 L 0 10 z" fill="#4a5a70" />
+        <marker id="arrow" viewBox="0 0 10 10" refX="18" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="#84adff" />
         </marker>
       </defs>
       {edges.map((e) => {
@@ -58,11 +58,18 @@ function NetworkSvg({
               y1={s.y}
               x2={t.x}
               y2={t.y}
-              stroke="#4a5a70"
-              strokeWidth={2}
+              stroke="#84adff"
+              strokeWidth={1.5}
               markerEnd="url(#arrow)"
             />
-            <text x={(s.x + t.x) / 2} y={(s.y + t.y) / 2 - 6} fontSize={11} textAnchor="middle" fill="#334">
+            <text
+              x={(s.x + t.x) / 2}
+              y={(s.y + t.y) / 2 - 8}
+              fontSize={12}
+              textAnchor="middle"
+              fill="#354052"
+              fontFamily="Noto Sans SC, sans-serif"
+            >
               {e.label}
             </text>
           </g>
@@ -72,8 +79,17 @@ function NetworkSvg({
         const p = points[i]!;
         return (
           <g key={n.iri} className="hit" onClick={() => onSelect("node", n.iri)}>
-            <circle cx={p.x} cy={p.y} r={18} fill="#2b6cb0" stroke="#1a365d" />
-            <text x={p.x} y={p.y + 32} fontSize={12} textAnchor="middle" fill="#1b2430">
+            <circle cx={p.x} cy={p.y} r={22} fill="rgb(21 94 239 / 0.08)" />
+            <circle cx={p.x} cy={p.y} r={11} fill="#155eef" />
+            <text
+              x={p.x}
+              y={p.y + 36}
+              fontSize={13}
+              fontWeight={600}
+              textAnchor="middle"
+              fill="#101828"
+              fontFamily="Noto Sans SC, sans-serif"
+            >
               {n.label}
             </text>
           </g>

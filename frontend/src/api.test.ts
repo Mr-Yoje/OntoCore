@@ -41,10 +41,31 @@ describe("copy", () => {
     expect(t.includes("deleteObject")).toBe(true);
     expect(t.includes("deleteRelation")).toBe(true);
     expect(t.includes("listObjectAttributes")).toBe(true);
+    expect(t.includes("createAttribute")).toBe(true);
+    expect(t.includes("属性（可选）")).toBe(true);
   });
 
   it("graph page can delete instance edges", () => {
     const t = readFileSync("src/pages/GraphPage.tsx", "utf8");
     expect(t.includes("deleteGraphRel")).toBe(true);
+  });
+
+  it("settings page can test model connectivity", () => {
+    const t = readFileSync("src/pages/SettingsPage.tsx", "utf8") + readFileSync("src/api.ts", "utf8");
+    expect(t.includes("testSettings")).toBe(true);
+    expect(t.includes("listSettingsModels")).toBe(true);
+    expect(t.includes("测试联通")).toBe(true);
+    expect(t.includes("拉取模型")).toBe(true);
+    expect(t.includes("供应商")).toBe(true);
+    expect(t.includes("settings-stack")).toBe(true);
+    expect(t.includes("vendor-card")).toBe(true);
+  });
+
+  it("upload page picks vendor and model", () => {
+    const t = readFileSync("src/pages/UploadPage.tsx", "utf8");
+    expect(t.includes("provider_id")).toBe(true);
+    expect(t.includes("具体模型")).toBe(true);
+    expect(t.includes("供应商")).toBe(true);
+    expect(t.includes("listSettingsModels")).toBe(true);
   });
 });

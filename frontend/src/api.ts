@@ -35,6 +35,14 @@ export function localName(iri: string): string {
   return hash.split("/").pop() ?? hash;
 }
 
+export type ProviderDraft = {
+  id?: string;
+  label: string;
+  prefix: string;
+  api_base: string;
+  api_key?: string | null;
+};
+
 export const api = {
   listObjects: () => fetch("/api/objects").then(parse),
   createObject: (body: {
@@ -91,11 +99,16 @@ export const api = {
   deleteRelation: (name: string) =>
     fetch(`/api/relations/${encodeURIComponent(name)}`, { method: "DELETE" }).then(parse),
   ontologyNetwork: () => fetch("/api/ontology/network").then(parse),
-  createJob: (file: File, extractor: string, model: string) => {
+  createJob: (
+    file: File,
+    body: { extractor: string; provider_id?: string; model?: string; thinking?: boolean },
+  ) => {
     const form = new FormData();
     form.append("file", file);
-    form.append("extractor", extractor);
-    form.append("model", model);
+    form.append("extractor", body.extractor);
+    if (body.provider_id) form.append("provider_id", body.provider_id);
+    if (body.model) form.append("model", body.model);
+    form.append("thinking", body.thinking ? "true" : "false");
     return fetch("/api/jobs", { method: "POST", body: form }).then(parse);
   },
   getJob: (id: string) => fetch(`/api/jobs/${encodeURIComponent(id)}`).then(parse),
@@ -118,11 +131,35 @@ export const api = {
   listObjectAttributes: (name: string) =>
     fetch(`/api/objects/${encodeURIComponent(name)}/attributes`).then(parse),
   getSettings: () => fetch("/api/settings").then(parse),
-  putSettings: (extractor: string, model: string) =>
+  putSettings: (body: { providers: ProviderDraft[] }) =>
     fetch("/api/settings", {
       method: "PUT",
       headers: jsonHeaders(),
-      body: JSON.stringify({ extractor, model }),
+      body: JSON.stringify(body),
+    }).then(parse),
+  listSettingsModels: (body: {
+    provider_id?: string | null;
+    prefix?: string;
+    api_base?: string;
+    api_key?: string | null;
+  }) =>
+    fetch("/api/settings/models", {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify(body),
+    }).then(parse) as Promise<{ models: string[] }>,
+  testSettings: (body: {
+    provider_id?: string | null;
+    prefix?: string;
+    api_base?: string;
+    api_key?: string | null;
+    model: string;
+    thinking?: boolean;
+  }) =>
+    fetch("/api/settings/test", {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify(body),
     }).then(parse),
   importOntology: (ttl: string, force: boolean) =>
     fetch(`/api/ontology/import?force=${force ? "true" : "false"}`, {

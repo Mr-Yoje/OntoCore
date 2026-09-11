@@ -25,6 +25,14 @@ type OntoAttribute = {
   literal_kind: "text" | "number" | "date";
 };
 
+type AttrDraft = {
+  key: number;
+  label: string;
+  definition: string;
+  literal_kind: "text" | "number" | "date";
+  local_name: string;
+};
+
 type TypeNet = {
   nodes: { iri: string; label: string; definition: string; parent_iri: string | null }[];
   edges: { iri: string; label: string; source_iri: string; target_iri: string }[];
@@ -47,6 +55,9 @@ export function OntologyPage() {
   const [attrDef, setAttrDef] = useState("");
   const [attrKind, setAttrKind] = useState<"text" | "number" | "date">("text");
   const [attrLocal, setAttrLocal] = useState("");
+
+  const [newAttrs, setNewAttrs] = useState<AttrDraft[]>([]);
+  const [nextAttrKey, setNextAttrKey] = useState(1);
 
   const [relLabel, setRelLabel] = useState("");
   const [relDef, setRelDef] = useState("");
@@ -118,22 +129,50 @@ export function OntologyPage() {
     }
   }
 
+  function updateNewAttr(key: number, patch: Partial<AttrDraft>) {
+    setNewAttrs((rows) => rows.map((row) => (row.key === key ? { ...row, ...patch } : row)));
+  }
+
   async function onCreateObject(ev: FormEvent) {
     ev.preventDefault();
+    let createdIri: string | null = null;
     try {
-      await api.createObject({
+      const created = (await api.createObject({
         local_name: local,
         label,
         definition,
         parent_local_name: parent || null,
-      });
+      })) as { iri: string };
+      createdIri = created.iri;
+      const owner = localName(created.iri);
+      for (const row of newAttrs) {
+        const attrLabel = row.label.trim();
+        if (!attrLabel) continue;
+        const attrLocal = row.local_name.trim() || `attr_${row.key}`;
+        await api.createAttribute(owner, {
+          local_name: attrLocal,
+          label: attrLabel,
+          definition: row.definition.trim(),
+          literal_kind: row.literal_kind,
+        });
+      }
       setLabel("");
       setDefinition("");
       setParent("");
       setLocal("");
+      setNewAttrs([]);
+      setSelectedIri(created.iri);
       await refresh();
     } catch (e) {
       setError(e instanceof ApiError ? e.detail : String(e));
+      if (createdIri) {
+        setLabel("");
+        setDefinition("");
+        setParent("");
+        setLocal("");
+        setSelectedIri(createdIri);
+        await refresh();
+      }
     }
   }
 
@@ -186,15 +225,27 @@ export function OntologyPage() {
   }
 
   return (
-    <main className="page layout">
+    <main className="page">
+      <header className="page-head">
+        <div>
+          <h1>本体</h1>
+          <p className="kicker">管理对象、属性和关系</p>
+        </div>
+        <p className="muted">{objects.length} 对象 · {relations.length} 关系</p>
+      </header>
+      <div className="layout">
       <div className="stack">
         <section className="panel stack">
           <h2>对象</h2>
           {error ? <p className="error">{error}</p> : null}
-          <ul>
+          <ul className="entity-list">
             {objects.map((o) => (
               <li key={o.iri}>
-                <button type="button" onClick={() => setSelectedIri(o.iri)}>
+                <button
+                  type="button"
+                  aria-pressed={selectedIri === o.iri}
+                  onClick={() => setSelectedIri(o.iri)}
+                >
                   {o.label}
                 </button>
               </li>
@@ -224,12 +275,85 @@ export function OntologyPage() {
               本地名
               <input value={local} onChange={(e) => setLocal(e.target.value)} required />
             </label>
+            <div className="stack">
+              <p className="muted">属性（可选）</p>
+              {newAttrs.map((row) => (
+                <div key={row.key} className="attr-draft">
+                  <div className="field-row">
+                  <label>
+                    显示名
+                    <input
+                      value={row.label}
+                      onChange={(e) => updateNewAttr(row.key, { label: e.target.value })}
+                    />
+                  </label>
+                  <label>
+                    本地名
+                    <input
+                      value={row.local_name}
+                      onChange={(e) => updateNewAttr(row.key, { local_name: e.target.value })}
+                      placeholder="可空，默认自动生成"
+                    />
+                  </label>
+                  </div>
+                  <label>
+                    定义
+                    <input
+                      value={row.definition}
+                      onChange={(e) => updateNewAttr(row.key, { definition: e.target.value })}
+                    />
+                  </label>
+                  <label>
+                    字面量
+                    <select
+                      value={row.literal_kind}
+                      onChange={(e) =>
+                        updateNewAttr(row.key, {
+                          literal_kind: e.target.value as AttrDraft["literal_kind"],
+                        })
+                      }
+                    >
+                      <option value="text">文本</option>
+                      <option value="number">数字</option>
+                      <option value="date">日期</option>
+                    </select>
+                  </label>
+                  <button
+                    type="button"
+                    className="btn-ghost"
+                    onClick={() => setNewAttrs((rows) => rows.filter((r) => r.key !== row.key))}
+                  >
+                    去掉此属性
+                  </button>
+                </div>
+              ))}
+              <button
+                type="button"
+                className="btn-ghost"
+                onClick={() => {
+                  setNewAttrs((rows) => [
+                    ...rows,
+                    {
+                      key: nextAttrKey,
+                      label: "",
+                      definition: "",
+                      literal_kind: "text",
+                      local_name: "",
+                    },
+                  ]);
+                  setNextAttrKey((n) => n + 1);
+                }}
+              >
+                添加属性
+              </button>
+            </div>
             <button type="submit">新建对象</button>
           </form>
         </section>
 
         {selected ? (
           <section className="panel stack">
+            <h2>选中对象</h2>
             <h3>{selected.label}</h3>
             <form className="stack" onSubmit={onSaveObject}>
               <label>
@@ -253,10 +377,12 @@ export function OntologyPage() {
                     ))}
                 </select>
               </label>
-              <button type="submit">保存对象</button>
-              <button type="button" onClick={() => void onDeleteObject()}>
-                删除对象
-              </button>
+              <div className="actions">
+                <button type="submit">保存对象</button>
+                <button type="button" className="btn-danger" onClick={() => void onDeleteObject()}>
+                  删除对象
+                </button>
+              </div>
             </form>
             <table>
               <thead>
@@ -275,6 +401,7 @@ export function OntologyPage() {
                       {a.owner_iri === selectedIri ? (
                       <button
                         type="button"
+                        className="btn-danger"
                         onClick={async () => {
                           try {
                             await api.deleteAttribute(localName(a.iri));
@@ -338,6 +465,7 @@ export function OntologyPage() {
                   <td>
                     <button
                       type="button"
+                      className="btn-danger"
                       onClick={async () => {
                         try {
                           await api.deleteRelation(localName(r.iri));
@@ -394,7 +522,7 @@ export function OntologyPage() {
         </section>
       </div>
 
-      <section className="panel">
+      <section className="panel panel-canvas">
         <TypeNetwork
           nodes={network.nodes}
           edges={network.edges}
@@ -403,6 +531,7 @@ export function OntologyPage() {
           }}
         />
       </section>
+      </div>
     </main>
   );
 }
