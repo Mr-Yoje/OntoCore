@@ -28,6 +28,25 @@ def test_lite_llm_prefers_json_object(monkeypatch):
     assert gw.complete_structured({"type": "object"}, [{"role": "user", "content": "x"}]) == {"ok": True}
     assert captured["kwargs"]["response_format"] == {"type": "json_object"}
     assert captured["kwargs"]["model"] == "openai/gpt-4o-mini"
+    assert "api_key" not in captured["kwargs"]
+    assert "thinking" not in captured["kwargs"]
+
+
+def test_lite_llm_passes_endpoint_key_and_thinking(monkeypatch):
+    captured = _patch_litellm(monkeypatch, '{"ok": true}')
+    gw = LiteLlmGateway(
+        "openai/deepseek-chat",
+        api_key="sk-live",
+        api_base="https://api.deepseek.com/v1",
+        thinking=True,
+    )
+    gw.complete_structured({"type": "object"}, [])
+    kwargs = captured["kwargs"]
+    assert kwargs["api_key"] == "sk-live"
+    assert kwargs["api_base"] == "https://api.deepseek.com/v1"
+    assert kwargs["reasoning_effort"] == "medium"
+    assert kwargs["thinking"]["type"] == "enabled"
+    assert kwargs["drop_params"] is True
 
 
 def test_lite_llm_bad_json(monkeypatch):
@@ -35,6 +54,14 @@ def test_lite_llm_bad_json(monkeypatch):
     gw = LiteLlmGateway("openai/gpt-4o-mini")
     with pytest.raises(StructuredOutputError):
         gw.complete_structured({}, [])
+
+
+def test_lite_llm_probe(monkeypatch):
+    captured = _patch_litellm(monkeypatch, '{"ok": true}')
+    gw = LiteLlmGateway("openai/deepseek-chat", api_key="sk-x", api_base="https://api.deepseek.com")
+    assert gw.probe() == '{"ok": true}'
+    assert captured["kwargs"]["timeout"] == 30
+    assert captured["kwargs"]["max_tokens"] == 64
 
 
 def test_lite_llm_empty_content(monkeypatch):

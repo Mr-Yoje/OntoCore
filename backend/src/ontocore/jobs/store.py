@@ -26,6 +26,8 @@ class Job:
     model: str
     status: JobStatus
     error: str | None
+    provider_id: str | None = None
+    thinking: bool = False
 
 
 class JobStore:
@@ -33,8 +35,21 @@ class JobStore:
         self._path = sqlite_path
         with sqlite3.connect(self._path) as conn:
             conn.execute(_CREATE_TABLE)
+            cols = {row[1] for row in conn.execute("PRAGMA table_info(jobs)")}
+            if "provider_id" not in cols:
+                conn.execute("ALTER TABLE jobs ADD COLUMN provider_id TEXT")
+            if "thinking" not in cols:
+                conn.execute("ALTER TABLE jobs ADD COLUMN thinking INTEGER NOT NULL DEFAULT 0")
 
-    def create(self, filename: str, extractor: str, model: str) -> Job:
+    def create(
+        self,
+        filename: str,
+        extractor: str,
+        model: str,
+        *,
+        provider_id: str | None = None,
+        thinking: bool = False,
+    ) -> Job:
         job = Job(
             id=str(uuid.uuid4()),
             filename=filename,
@@ -42,12 +57,23 @@ class JobStore:
             model=model,
             status="queued",
             error=None,
+            provider_id=provider_id,
+            thinking=thinking,
         )
         with sqlite3.connect(self._path) as conn:
             conn.execute(
-                "INSERT INTO jobs (id, filename, extractor, model, status, error) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
-                (job.id, job.filename, job.extractor, job.model, job.status, job.error),
+                "INSERT INTO jobs (id, filename, extractor, model, status, error, provider_id, thinking) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    job.id,
+                    job.filename,
+                    job.extractor,
+                    job.model,
+                    job.status,
+                    job.error,
+                    job.provider_id,
+                    1 if job.thinking else 0,
+                ),
             )
         return job
 
@@ -55,7 +81,8 @@ class JobStore:
         with sqlite3.connect(self._path) as conn:
             conn.row_factory = sqlite3.Row
             cur = conn.execute(
-                "SELECT id, filename, extractor, model, status, error FROM jobs WHERE id = ?",
+                "SELECT id, filename, extractor, model, status, error, provider_id, thinking "
+                "FROM jobs WHERE id = ?",
                 (job_id,),
             )
             row = cur.fetchone()
@@ -77,6 +104,9 @@ class JobStore:
 
 
 def _row_to_job(row: sqlite3.Row) -> Job:
+    keys = row.keys()
+    thinking = bool(row["thinking"]) if "thinking" in keys and row["thinking"] is not None else False
+    provider_id = row["provider_id"] if "provider_id" in keys else None
     return Job(
         id=row["id"],
         filename=row["filename"],
@@ -84,4 +114,6 @@ def _row_to_job(row: sqlite3.Row) -> Job:
         model=row["model"],
         status=row["status"],
         error=row["error"],
+        provider_id=provider_id,
+        thinking=thinking,
     )

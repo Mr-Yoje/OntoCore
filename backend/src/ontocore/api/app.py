@@ -18,6 +18,7 @@ from ontocore.errors import (
     IngressError,
     OntologyWriteError,
     ProfileViolation,
+    StructuredOutputError,
 )
 from ontocore.extract.llm import LiteLlmGateway
 from ontocore.graph.memory import MemoryGraphRepository
@@ -28,7 +29,7 @@ from ontocore.jobs.store import JobStore
 from ontocore.models import OntoAttribute, OntoObject, OntoRelation
 from ontocore.ontology.repository import OntologyRepository
 from ontocore.review.service import ReviewService
-from ontocore.settings import load_settings, save_settings
+from ontocore.settings import find_provider, list_provider_models, load_settings, resolve_litellm_model, save_settings
 
 LiteralKind = Literal["text", "number", "date"]
 
@@ -72,9 +73,26 @@ class RelationPatch(BaseModel):
     definition: str | None = None
 
 
+class ProviderBody(BaseModel):
+    id: str | None = None
+    label: str
+    prefix: str = "openai"
+    api_base: str = ""
+    api_key: str | None = None
+
+
 class SettingsBody(BaseModel):
-    extractor: str
-    model: str
+    providers: list[ProviderBody]
+
+
+class ProbeBody(BaseModel):
+    provider_id: str | None = None
+    label: str = ""
+    prefix: str = "openai"
+    api_base: str = ""
+    api_key: str | None = None
+    model: str = ""
+    thinking: bool = False
 
 
 def _iri(local_name: str) -> str:
@@ -89,6 +107,22 @@ def _dump(value: Any) -> Any:
     return value
 
 
+def _probe_detail(raw: str) -> str:
+    text = (raw or "").strip() or "联通测试失败"
+    low = text.lower()
+    if "credential" in low or "api_key" in low or "unauthorized" in low or "401" in low:
+        return "密钥无效或未填写，请检查 API Key"
+    if "timeout" in low or "timed out" in low:
+        return "连接超时，请检查 Base URL 或网络"
+    if "connection" in low or "connect" in low or "name or service not known" in low:
+        return "无法连接服务，请检查 Base URL"
+    if "404" in low or "not found" in low:
+        return "接口不存在，请检查 Base URL 和模型名称"
+    if "429" in low:
+        return "请求过于频繁，请稍后再试"
+    return text[:400]
+
+
 def _write_detail(exc: OntologyWriteError) -> str:
     raw = str(exc) or "写入失败"
     mapped = (
@@ -100,6 +134,25 @@ def _write_detail(exc: OntologyWriteError) -> str:
     if "对象" not in mapped and "属性" not in mapped and "关系" not in mapped:
         return f"无法写入对象：{mapped}"
     return mapped
+
+
+def _provider_creds(root: Path, body: ProbeBody) -> tuple[str, str, str]:
+    current = load_settings(root)
+    saved = find_provider(current, body.provider_id)
+    prefix = (body.prefix or (saved or {}).get("prefix") or "openai").strip() or "openai"
+    api_base = (
+        (body.api_base or "").strip()
+        or str((saved or {}).get("api_base") or "")
+        or os.environ.get("OPENAI_API_BASE")
+        or ""
+    )
+    api_key = (
+        (body.api_key or "").strip()
+        or str((saved or {}).get("api_key") or "")
+        or os.environ.get("OPENAI_API_KEY")
+        or ""
+    )
+    return prefix, api_base, api_key
 
 
 def _graph_from_env():
@@ -127,7 +180,20 @@ def create_app(
     projector = Projector(graph_repo)
     candidates = CandidateStore(sqlite)
     jobs = JobStore(sqlite)
-    factory = llm_factory or (lambda model: LiteLlmGateway(model))
+    def _llm_from_settings(model: str, provider_id: str | None = None, thinking: bool = False) -> LiteLlmGateway:
+        current = load_settings(root)
+        provider = find_provider(current, provider_id)
+        api_key = str((provider or {}).get("api_key") or os.environ.get("OPENAI_API_KEY") or "")
+        api_base = str((provider or {}).get("api_base") or os.environ.get("OPENAI_API_BASE") or "")
+        prefix = str((provider or {}).get("prefix") or "openai")
+        return LiteLlmGateway(
+            resolve_litellm_model(prefix, model),
+            api_key=api_key,
+            api_base=api_base,
+            thinking=thinking,
+        )
+
+    factory = llm_factory or _llm_from_settings
     job_service = JobService(jobs, candidates, ontology, factory)
     review = ReviewService(candidates, ontology, projector, jobs, graph_repo)
 
@@ -309,15 +375,32 @@ def create_app(
     @app.post("/api/jobs", summary="上传并抽取")
     async def create_job(
         file: UploadFile = File(...),
-        extractor: str | None = Form(None),
+        extractor: str = Form("hybrid"),
+        provider_id: str | None = Form(None),
         model: str | None = Form(None),
+        thinking: bool = Form(False),
     ):
-        current = load_settings(root)
-        chosen_extractor = extractor or current["extractor"]
-        chosen_model = model or current["model"]
+        chosen_extractor = extractor.strip() or "hybrid"
+        chosen_model = (model or "").strip()
+        if chosen_extractor != "rules_only":
+            if not provider_id:
+                return JSONResponse(status_code=400, content={"detail": "请选择供应商"})
+            if not chosen_model:
+                return JSONResponse(status_code=400, content={"detail": "请选择具体模型"})
+            if find_provider(load_settings(root), provider_id) is None:
+                return JSONResponse(status_code=400, content={"detail": "未找到所选供应商，请先在设置中添加"})
+        else:
+            chosen_model = chosen_model or "rules_only"
+            provider_id = None
         data = await file.read()
         filename = file.filename or "upload.bin"
-        job = jobs.create(filename, chosen_extractor, chosen_model)
+        job = jobs.create(
+            filename,
+            chosen_extractor,
+            chosen_model,
+            provider_id=provider_id,
+            thinking=thinking,
+        )
         job = job_service.run(job.id, filename, data)
         return _dump(job)
 
@@ -359,8 +442,40 @@ def create_app(
     def get_settings():
         return load_settings(root)
 
-    @app.put("/api/settings", summary="保存抽取设置")
+    @app.put("/api/settings", summary="保存供应商")
     def put_settings(body: SettingsBody):
-        return save_settings(root, body.extractor, body.model)
+        return save_settings(root, [item.model_dump() for item in body.providers])
+
+    @app.post("/api/settings/models", summary="拉取供应商模型列表")
+    def list_settings_models(body: ProbeBody):
+        _prefix, api_base, api_key = _provider_creds(root, body)
+        if not api_base:
+            return JSONResponse(status_code=400, content={"detail": "请填写 Base URL"})
+        if not api_key:
+            return JSONResponse(status_code=400, content={"detail": "请填写 API Key"})
+        try:
+            models = list_provider_models(api_base, api_key)
+        except (RuntimeError, ValueError) as exc:
+            return JSONResponse(status_code=400, content={"detail": _probe_detail(str(exc))})
+        return {"models": models}
+
+    @app.post("/api/settings/test", summary="测试模型联通")
+    def test_settings(body: ProbeBody):
+        model = body.model.strip()
+        if not model:
+            return JSONResponse(status_code=400, content={"detail": "请选择具体模型"})
+        prefix, api_base, api_key = _provider_creds(root, body)
+        litellm_model = resolve_litellm_model(prefix, model)
+        gateway = LiteLlmGateway(
+            litellm_model,
+            api_key=api_key,
+            api_base=api_base,
+            thinking=body.thinking,
+        )
+        try:
+            preview = gateway.probe()
+        except StructuredOutputError as exc:
+            return JSONResponse(status_code=400, content={"detail": _probe_detail(str(exc))})
+        return {"ok": True, "model": litellm_model, "preview": preview}
 
     return app

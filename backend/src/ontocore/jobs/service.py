@@ -26,6 +26,13 @@ class JobService:
         self._ontology = ontology
         self._llm_factory = llm_factory
 
+    def _make_llm(self, job: Job):
+        factory = self._llm_factory
+        try:
+            return factory(job.model, provider_id=job.provider_id, thinking=job.thinking)
+        except TypeError:
+            return factory(job.model)
+
     def run(self, job_id: str, filename: str, data: bytes) -> Job:
         job = self._jobs.set_status(job_id, "running")
         try:
@@ -35,7 +42,7 @@ class JobService:
             raise
         try:
             extractor = get_extractor(job.extractor)
-            llm = self._llm_factory(job.model)
+            llm = self._make_llm(job)
             result = extractor.extract(doc, self._ontology.snapshot(), llm)
             self._candidates.replace_job_results(job_id, result)
         except Exception as exc:
