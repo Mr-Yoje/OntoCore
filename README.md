@@ -44,9 +44,9 @@ npm run dev
 
 浏览器打开 Vite 地址（默认代理 `/api` 到 `http://127.0.0.1:8001`）。
 
-## Git
+## 开发
 
-个人维护约定：主干开发、做完即提交、精简 Conventional Commits，不为流程开分支。说明见 [`docs/git-workflow.md`](docs/git-workflow.md)。
+约定见 [`docs/dev-standards.md`](docs/dev-standards.md)：新改动必须有测试覆盖；产品文案只用对象、属性、关系、定义、实例、父对象；前端视觉参考 Dify 浅色工作台。Git 见 [`docs/git-workflow.md`](docs/git-workflow.md)。
 
 ## 演示路径
 
