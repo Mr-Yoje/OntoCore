@@ -45,6 +45,25 @@ describe("copy", () => {
     expect(t.includes("属性（可选）")).toBe(true);
   });
 
+  it("ontology main page lists objects and graph; create and detail use dialogs", () => {
+    const t = readFileSync("src/pages/OntologyPage.tsx", "utf8");
+    expect(t.includes("TypeNetwork")).toBe(true);
+    expect(t.includes("entity-list")).toBe(true);
+    expect(t.includes('role="dialog"')).toBe(true);
+    expect(t.includes("新建对象")).toBe(true);
+    expect(t.includes("新建关系")).toBe(true);
+    expect(t.includes("kind === \"edge\"") || t.includes('kind === "edge"')).toBe(true);
+    const createObjectAt = t.indexOf("onCreateObject");
+    const dialogAt = t.indexOf('role="dialog"');
+    expect(createObjectAt).toBeGreaterThan(-1);
+    expect(dialogAt).toBeGreaterThan(-1);
+    const mainReturn = t.slice(t.indexOf("return ("));
+    const firstDialog = mainReturn.indexOf('role="dialog"');
+    const createForm = mainReturn.indexOf("onCreateObject");
+    expect(firstDialog).toBeGreaterThan(-1);
+    expect(createForm).toBeGreaterThan(firstDialog);
+  });
+
   it("graph page can delete instance edges", () => {
     const t = readFileSync("src/pages/GraphPage.tsx", "utf8");
     expect(t.includes("deleteGraphRel")).toBe(true);
