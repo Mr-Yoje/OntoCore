@@ -17,7 +17,7 @@
 - 前端视觉参考 Dify 浅色工作台。
 - 新建对象时可在同一表单附带可选属性。
 - 个人维护 Git：主干 `main`，不为流程开分支。新改动必须有测试。
-- 本机数据在 `ONTOCORE_DATA_DIR`（缺省相对后端工作目录的 `./data`），含 `settings.json` 与 oxigraph，不进 Git。
+- 本机数据在 `ONTOCORE_DATA_DIR`（缺省相对后端工作目录的 `./data`），含 `ontocore.db`、主密钥与 oxigraph，不进 Git。模型供应商密钥加密存放，接口不回传明文。
 
 ## 1. 背景与目标
 
@@ -57,7 +57,7 @@ OntoCore 是本体管理工具：维护对象、属性、关系，从说明书�
 
 序列化：Turtle / JSON-LD。自有 JSON 不是类型层权威。第一期一个工作本体，IRI 前缀默认 `https://ontocore.local/ns/working#`。IRI 写入后稳定；改名只改显示名与图侧 `onto_label`。
 
-本机运行数据目录：`ONTOCORE_DATA_DIR`，缺省 `./data`（相对启动后端时的工作目录，开发时一般为 `backend/data`）。其中：`settings.json`、`ontocore.db`、`oxigraph/`。密钥只放本机，不进仓库。
+本机运行数据目录：`ONTOCORE_DATA_DIR`，缺省 `./data`（相对启动后端时的工作目录，开发时一般为 `backend/data`）。其中：`ontocore.db`（作业、候选、模型供应商密文）、`master.key`（或环境变量 `ONTOCORE_SECRET_KEY`）、`oxigraph/`。密钥只放本机，不进仓库；SQLite 与 JSON 都不存明文 `api_key`。旧 `settings.json` 在首次读取时迁入 SQLite 并去掉明文。
 
 ## 3. 架构
 
@@ -85,7 +85,8 @@ DocumentIngress、Extractor（`hybrid` / `llm_only` / `rules_only`）、Candidat
 | label | 显示名 |
 | prefix | LiteLLM 调用前缀（如 `openai`、`deepseek`） |
 | api_base | Base URL |
-| api_key | 密钥（本机文件；界面用密码框） |
+| api_key | 仅写入时提交；磁盘为密文；`GET` 不返回 |
+| has_api_key | 是否已保存密钥（给界面占位，不是密钥本身） |
 | model | 最近选定的具体模型名（短名，不含或可含 `/`） |
 
 模型列表：`GET {api_base}/v1/models`（若 Base URL 已以 `/v1` 结尾则 `{api_base}/models`），Bearer 密钥。选项来自返回的 `id`。具体模型名与前缀拼成 LiteLLM 模型（已含 `/` 则不再加前缀）。可选 `thinking`。
@@ -98,7 +99,7 @@ DocumentIngress、Extractor（`hybrid` / `llm_only` / `rules_only`）、Candidat
 - 上传作业、类型候选接受/拒绝、投影到图
 - 实例网查询、删除实例节点/边
 - OWL 导出（Turtle、JSON-LD）；导入（Turtle，`force`）
-- `GET/PUT /api/settings`：供应商列表
+- `GET/PUT /api/settings`：模型供应商列表。`GET`/`PUT` 响应含 `has_api_key`，不含 `api_key`。`PUT` 仅在字段非空时更新密钥。
 - `POST /api/settings/models`：拉取模型列表
 - `POST /api/settings/test`：最小请求测联通
 
@@ -109,7 +110,7 @@ DocumentIngress、Extractor（`hybrid` / `llm_only` / `rules_only`）、Candidat
 五个页签。视觉参考 Dify 浅色工作台：白侧栏、灰画布、白卡片、大圆角、主色约 `#155eef`、Noto Sans SC。成功/错误用右上角弹出 tips，不嵌在表单正文里。
 
 **本体**  
-对象列表：新建（可附带可选属性行）、改显示名/定义/父对象、删除。选中后维护属性。关系列表。主区对象关系网。
+主页面左栏已有对象列表、右栏对象关系网；顶栏「新建对象」「新建关系」打开弹窗。新建对象弹窗可附带可选属性行。点列表或图上节点打开对象详情弹窗（改显示名/定义/父对象、属性、删除）。点图上的边打开关系详情弹窗（可删除）。新建表单不嵌在主页面正文里。
 
 **上传**  
 文件 + 抽取器。非 `rules_only` 时选供应商与具体模型（列表来自该供应商接口）、可选 thinking。无领域包。
@@ -121,7 +122,7 @@ DocumentIngress、Extractor（`hybrid` / `llm_only` / `rules_only`）、Candidat
 实例关系网，可按对象筛选，可删节点和边。
 
 **设置**  
-上下布局：上方供应商（每条一张卡片：名称、前缀、Base URL、密钥、测试用模型、拉取模型、测试联通），下方 Turtle 导入与导出链接。打开页时用已存密钥自动拉模型列表。
+上下布局：上方**模型供应商**用卡片网格（面板内方形磁贴：名称、前缀、当前模型），点卡片打开编辑弹窗（名称、前缀、Base URL、密钥、测试用模型、拉取模型、测试联通）；「新增模型供应商」打开空白创建弹窗。不放空占位框。密钥框不回填明文，已保存时占位「已保存密钥」。保存 `PUT /api/settings`。下方 Turtle 导入与导出链接。打开页时用已存密钥在服务端拉模型列表。
 
 ## 7. 数据流
 
