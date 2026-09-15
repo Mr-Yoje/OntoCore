@@ -61,8 +61,13 @@ def test_settings_stores_providers_not_extractor(tmp_path):
     saved = updated.json()["providers"]
     assert len(saved) == 1
     assert saved[0]["label"] == "DeepSeek"
-    assert saved[0]["api_key"] == "sk-test"
+    assert saved[0]["has_api_key"] is True
+    assert "api_key" not in saved[0]
     assert "extractor" not in updated.json()
+    disk = (tmp_path / "ontocore.db").read_bytes()
+    assert b"sk-test" not in disk
+    if (tmp_path / "settings.json").exists():
+        assert "sk-test" not in (tmp_path / "settings.json").read_text(encoding="utf-8")
     kept = client.put(
         "/api/settings",
         json={
@@ -77,7 +82,9 @@ def test_settings_stores_providers_not_extractor(tmp_path):
             ]
         },
     )
-    assert kept.json()["providers"][0]["api_key"] == "sk-test"
+    assert kept.json()["providers"][0]["has_api_key"] is True
+    assert "api_key" not in kept.json()["providers"][0]
+    assert client.get("/api/settings").json()["providers"][0]["has_api_key"] is True
 
 
 def test_settings_stores_selected_model(tmp_path):
@@ -118,7 +125,11 @@ def test_settings_migrates_legacy_file(tmp_path):
     providers = client.get("/api/settings").json()["providers"]
     assert providers[0]["label"] == "默认供应商"
     assert providers[0]["prefix"] == "openai"
-    assert providers[0]["api_key"] == "sk-old"
+    assert providers[0]["has_api_key"] is True
+    assert "api_key" not in providers[0]
+    assert "sk-old" not in (tmp_path / "ontocore.db").read_bytes().decode("latin-1", errors="ignore")
+    leftover = (tmp_path / "settings.json").read_text(encoding="utf-8") if (tmp_path / "settings.json").exists() else ""
+    assert "sk-old" not in leftover
 
 
 def test_settings_probe_ok(tmp_path, monkeypatch):

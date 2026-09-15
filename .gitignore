@@ -5,6 +5,8 @@ Thumbs.db
 .env.*
 backend/.venv/
 backend/data/
+backend/master.key
+master.key
 backend/.pytest_cache/
 frontend/node_modules/
 **/__pycache__/

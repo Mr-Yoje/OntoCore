@@ -29,7 +29,14 @@ from ontocore.jobs.store import JobStore
 from ontocore.models import OntoAttribute, OntoObject, OntoRelation
 from ontocore.ontology.repository import OntologyRepository
 from ontocore.review.service import ReviewService
-from ontocore.settings import find_provider, list_provider_models, load_settings, resolve_litellm_model, save_settings
+from ontocore.settings import (
+    find_provider,
+    list_provider_models,
+    load_settings,
+    public_settings,
+    resolve_litellm_model,
+    save_settings,
+)
 
 LiteralKind = Literal["text", "number", "date"]
 
@@ -441,7 +448,7 @@ def create_app(
 
     @app.get("/api/settings", summary="读取抽取设置")
     def get_settings():
-        return load_settings(root)
+        return public_settings(root)
 
     @app.put("/api/settings", summary="保存供应商")
     def put_settings(body: SettingsBody):
