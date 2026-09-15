@@ -41,6 +41,7 @@ export type ProviderDraft = {
   prefix: string;
   api_base: string;
   api_key?: string | null;
+  model?: string;
 };
 
 export const api = {

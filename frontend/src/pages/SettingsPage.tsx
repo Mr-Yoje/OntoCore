@@ -28,7 +28,33 @@ export function SettingsPage() {
       .getSettings()
       .then((s) => {
         const body = s as { providers?: Provider[] };
-        if (body.providers && body.providers.length) setProviders(body.providers);
+        const rows = body.providers ?? [];
+        if (!rows.length) return;
+        setProviders(rows);
+        const selected: Record<string, string> = {};
+        rows.forEach((row, index) => {
+          if (row.model) selected[vendorKey(row, index)] = row.model;
+        });
+        setProbeModels(selected);
+        rows.forEach((row, index) => {
+          if (!row.id && !row.api_base.trim()) return;
+          void api
+            .listSettingsModels({
+              provider_id: row.id,
+              prefix: row.prefix,
+              api_base: row.api_base.trim(),
+              api_key: row.api_key && row.api_key.trim() !== "" ? row.api_key : null,
+            })
+            .then((result) => {
+              const key = vendorKey(row, index);
+              setCatalogs((prev) => ({ ...prev, [key]: result.models }));
+              setProbeModels((prev) => ({
+                ...prev,
+                [key]: result.models.includes(prev[key]) ? prev[key] : result.models[0] ?? "",
+              }));
+            })
+            .catch((e) => showTip("error", tipText(e)));
+        });
       })
       .catch((e) => showTip("error", tipText(e)));
   }, [showTip]);
@@ -68,10 +94,11 @@ export function SettingsPage() {
       const saved = (await api.putSettings({
         providers: providers
           .filter((p) => p.label.trim() || p.api_base.trim() || p.api_key)
-          .map((p) => ({
+          .map((p, index) => ({
             ...p,
             label: p.label.trim() || "未命名供应商",
             api_key: p.api_key && p.api_key.trim() !== "" ? p.api_key : null,
+            model: probeModels[vendorKey(p, index)]?.trim() || p.model || "",
           })),
       })) as { providers: Provider[] };
       setProviders(saved.providers.length ? saved.providers : [blankProvider()]);

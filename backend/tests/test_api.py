@@ -80,6 +80,27 @@ def test_settings_stores_providers_not_extractor(tmp_path):
     assert kept.json()["providers"][0]["api_key"] == "sk-test"
 
 
+def test_settings_stores_selected_model(tmp_path):
+    client = TestClient(create_app(data_dir=tmp_path))
+    updated = client.put(
+        "/api/settings",
+        json={
+            "providers": [
+                {
+                    "label": "DeepSeek",
+                    "prefix": "openai",
+                    "api_base": "https://api.deepseek.com",
+                    "api_key": "sk-test",
+                    "model": "deepseek-chat",
+                }
+            ]
+        },
+    )
+    assert updated.status_code == 200
+    assert updated.json()["providers"][0]["model"] == "deepseek-chat"
+    assert client.get("/api/settings").json()["providers"][0]["model"] == "deepseek-chat"
+
+
 def test_settings_migrates_legacy_file(tmp_path):
     (tmp_path / "settings.json").write_text(
         json.dumps(

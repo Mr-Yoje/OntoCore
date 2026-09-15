@@ -79,6 +79,7 @@ class ProviderBody(BaseModel):
     prefix: str = "openai"
     api_base: str = ""
     api_key: str | None = None
+    model: str = ""
 
 
 class SettingsBody(BaseModel):

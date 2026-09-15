@@ -59,6 +59,7 @@ describe("copy", () => {
     expect(t.includes("供应商")).toBe(true);
     expect(t.includes("settings-stack")).toBe(true);
     expect(t.includes("vendor-card")).toBe(true);
+    expect(t.includes("model:")).toBe(true);
   });
 
   it("upload page picks vendor and model", () => {

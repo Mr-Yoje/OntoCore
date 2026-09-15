@@ -74,6 +74,7 @@ def _as_provider(raw: dict[str, Any], *, fallback_key: str = "") -> dict[str, An
         "prefix": str(raw.get("prefix") or "openai").strip() or "openai",
         "api_base": str(raw.get("api_base") or "").strip(),
         "api_key": str(key or ""),
+        "model": str(raw.get("model") or "").strip(),
     }
 
 
