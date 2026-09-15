@@ -41,6 +41,7 @@ export type ProviderDraft = {
   prefix: string;
   api_base: string;
   api_key?: string | null;
+  has_api_key?: boolean;
   model?: string;
 };
 

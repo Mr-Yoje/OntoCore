@@ -56,10 +56,42 @@ describe("copy", () => {
     expect(t.includes("listSettingsModels")).toBe(true);
     expect(t.includes("测试联通")).toBe(true);
     expect(t.includes("拉取模型")).toBe(true);
-    expect(t.includes("供应商")).toBe(true);
+    expect(t.includes("模型供应商")).toBe(true);
     expect(t.includes("settings-stack")).toBe(true);
     expect(t.includes("vendor-card")).toBe(true);
     expect(t.includes("model:")).toBe(true);
+  });
+
+  it("settings vendors use a card grid; add and edit open dialogs", () => {
+    const t = readFileSync("src/pages/SettingsPage.tsx", "utf8");
+    expect(t.includes("vendor-grid")).toBe(true);
+    expect(t.includes("新增模型供应商")).toBe(true);
+    expect(t.includes("vendor-slot")).toBe(false);
+    expect(t.includes('role="dialog"')).toBe(true);
+    expect(t.includes("modal-backdrop")).toBe(true);
+    expect(t.includes("putSettings")).toBe(true);
+    const page = t.slice(t.indexOf("export function SettingsPage"));
+    const gridAt = page.indexOf("vendor-grid");
+    const dialogAt = page.indexOf("<Dialog");
+    expect(gridAt).toBeGreaterThan(-1);
+    expect(dialogAt).toBeGreaterThan(-1);
+    expect(dialogAt).toBeGreaterThan(gridAt);
+    const gridChunk = page.slice(gridAt, dialogAt);
+    expect(gridChunk.includes("测试联通")).toBe(false);
+    expect(gridChunk.includes("拉取模型")).toBe(false);
+    const dialogChunk = page.slice(dialogAt);
+    expect(dialogChunk.includes("测试联通")).toBe(true);
+    expect(dialogChunk.includes("拉取模型")).toBe(true);
+  });
+
+  it("settings page does not keep vendor keys in the client", () => {
+    const page = readFileSync("src/pages/SettingsPage.tsx", "utf8");
+    const api = readFileSync("src/api.ts", "utf8");
+    expect(page.includes("localStorage")).toBe(false);
+    expect(page.includes("sessionStorage")).toBe(false);
+    expect(page.includes("has_api_key")).toBe(true);
+    expect(page.includes("已保存密钥")).toBe(true);
+    expect(api.includes("has_api_key")).toBe(true);
   });
 
   it("upload page picks vendor and model", () => {
@@ -102,5 +134,4 @@ describe("copy", () => {
     expect(tn.includes("forceAtlas2")).toBe(true);
     expect(tn.includes("animatedZoom") || tn.includes("ZoomIn") || tn.includes("放大")).toBe(true);
   });
-
 });

@@ -312,7 +312,7 @@ th {
   position: fixed;
   top: 20px;
   right: 24px;
-  z-index: 40;
+  z-index: 60;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -343,6 +343,49 @@ th {
   font-weight: 500;
 }
 .tip-dismiss:hover { background: var(--bg); color: var(--text); }
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgb(16 24 40 / 0.36);
+}
+.modal {
+  width: min(560px, 100%);
+  max-height: calc(100vh - 48px);
+  overflow: auto;
+  background: #ffffff;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: 0 16px 48px rgb(16 24 40 / 0.18);
+}
+.modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 16px 12px;
+  border-bottom: 1px solid var(--line);
+}
+.modal-head h2 {
+  font-size: 16px;
+}
+.modal-head .btn-ghost {
+  border: 0;
+  padding: 4px 8px;
+  font-size: 18px;
+  line-height: 1;
+  color: var(--muted);
+}
+.modal-body {
+  padding: 16px;
+}
+.object-panel .entity-list {
+  max-height: 460px;
+}
 
 .entity-list {
   list-style: none;
@@ -387,7 +430,19 @@ th {
   display: flex;
   flex-direction: column;
   gap: 20px;
-  max-width: 760px;
+  max-width: 960px;
+}
+.vendor-panel {
+  background: var(--bg-elev);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 20px;
+}
+.vendor-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
+  gap: 16px;
 }
 .vendor-card {
   background: var(--bg-elev);
@@ -397,6 +452,50 @@ th {
   padding: 16px;
   display: grid;
   gap: 12px;
+}
+.vendor-tile {
+  aspect-ratio: 1;
+  width: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 8px;
+  text-align: left;
+  cursor: pointer;
+  padding: 16px;
+  color: var(--text);
+  font: inherit;
+  border-radius: var(--radius);
+}
+.vendor-card.vendor-tile {
+  display: flex;
+  background: var(--field-muted);
+}
+.vendor-card.vendor-tile:hover {
+  border-color: var(--accent);
+  background: #ffffff;
+}
+.vendor-tile-add {
+  aspect-ratio: 1;
+  border: 1.5px dashed var(--line-strong);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+}
+.vendor-tile-add:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-dim);
+}
+.vendor-tile-model {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .vendor-card-head {
   display: flex;
