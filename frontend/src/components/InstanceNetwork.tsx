@@ -1,4 +1,11 @@
-import { TypeNetwork, type NetworkEdge, type NetworkNode, type NetworkSelect } from "./TypeNetwork";
+import {
+  TypeNetwork,
+  type NetworkEdge,
+  type NetworkNode,
+  type NetworkSelect,
+} from "./TypeNetwork";
+
+export type { NetworkEdge, NetworkNode, NetworkSelect };
 
 export function InstanceNetwork({
   nodes,
@@ -10,6 +17,11 @@ export function InstanceNetwork({
   onSelect: NetworkSelect;
 }) {
   return (
-    <TypeNetwork nodes={nodes} edges={edges} onSelect={onSelect} emptyText="还没有实例" />
+    <TypeNetwork
+      nodes={nodes}
+      edges={edges}
+      onSelect={onSelect}
+      emptyText="还没有实例"
+    />
   );
 }

@@ -90,4 +90,17 @@ describe("copy", () => {
       expect(t.includes('className="ok"'), f).toBe(false);
     }
   });
+
+  it("TypeNetwork stack uses sigma and graphology", () => {
+    const pkg = readFileSync("package.json", "utf8");
+    expect(pkg.includes('"sigma"')).toBe(true);
+    expect(pkg.includes('"graphology"')).toBe(true);
+    expect(pkg.includes("graphology-layout-forceatlas2")).toBe(true);
+    const tn = readFileSync("src/components/TypeNetwork.tsx", "utf8");
+    expect(tn.includes('from "sigma"') || tn.includes("from 'sigma'")).toBe(true);
+    expect(tn.includes("buildNetworkGraph")).toBe(true);
+    expect(tn.includes("forceAtlas2")).toBe(true);
+    expect(tn.includes("animatedZoom") || tn.includes("ZoomIn") || tn.includes("放大")).toBe(true);
+  });
+
 });
