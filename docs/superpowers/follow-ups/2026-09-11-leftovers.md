@@ -1,8 +1,7 @@
 # 未完成项（相对 2026-09-11 对象关系规格）
 
 日期：2026-09-11  
-对照：[`../specs/2026-09-10-ontocore-objects-relations-design.md`](../specs/2026-09-10-ontocore-objects-relations-design.md)  
-当时状态：整支终审的 Critical 与大部分 Important 已修并压进 `552879e`；下列项**没有**写进规格、也未实现。
+对照：[`../specs/2026-09-15-ontocore-objects-relations-design.md`](../specs/2026-09-15-ontocore-objects-relations-design.md) §12。下文条目在 2026-09-15 规格中仍为缺口。
 
 ## 规格写了、实现仍缺
 

@@ -1,6 +1,6 @@
 # 开发规范
 
-个人维护的 OntoCore 日常开发约定。规格以 [`superpowers/specs/2026-09-10-ontocore-objects-relations-design.md`](superpowers/specs/2026-09-10-ontocore-objects-relations-design.md) 为准。Git 见 [`git-workflow.md`](git-workflow.md)。
+个人维护的 OntoCore 日常开发约定。规格以 [`superpowers/specs/2026-09-15-ontocore-objects-relations-design.md`](superpowers/specs/2026-09-15-ontocore-objects-relations-design.md) 为准。Git 见 [`git-workflow.md`](git-workflow.md)。
 
 ## 产品语言
 

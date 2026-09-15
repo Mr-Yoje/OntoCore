@@ -1,6 +1,6 @@
 # OntoCore
 
-从保险产品说明书抽取对象、属性、关系与实例，并投影到图。实现以对象关系规格为准（见 `docs/superpowers/specs/2026-09-10-ontocore-objects-relations-design.md`）。空库启动，无种子数据，无领域包。
+从保险产品说明书抽取对象、属性、关系与实例，并投影到图。实现以对象关系规格为准（见 `docs/superpowers/specs/2026-09-15-ontocore-objects-relations-design.md`）。空库启动，无种子数据、无领域包。
 
 ## 后端
 

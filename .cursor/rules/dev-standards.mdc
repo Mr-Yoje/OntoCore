@@ -5,7 +5,7 @@ alwaysApply: true
 
 # 开发规范
 
-规格见 `docs/dev-standards.md`。实现以对象关系设计规格为准。
+规格见 `docs/dev-standards.md`。实现以 `docs/superpowers/specs/2026-09-15-ontocore-objects-relations-design.md` 为准。
 
 - 新行为、修 bug、改接口：必须先有（或同时补上）会失败再转绿的测试，否则不算完成、不能提交。纯文档/忽略规则除外。
 - 后端测 `backend/tests/`（pytest，用临时数据目录）；前端测 `frontend/src/api.test.ts` 或新增 vitest。不要在测试里打真实供应商或读本机密钥。
