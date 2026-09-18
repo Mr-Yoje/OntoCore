@@ -36,11 +36,11 @@
 - **属性占用检查键可能对不上实例 `data`**：`count_nodes_with_attribute` 用属性 **IRI** 做 `node.data` 的键；抽取实例 `data` 常来自模型，键可能是显示名。删属性时可能漏拦或误拦。
 - **候选 IRI 未强制工作本体前缀**：`rules_only` 会拼 `NS + local`；`llm_only` / `hybrid` 信任模型返回的 `iri`，未校验 `https://ontocore.local/ns/working#`。
 - **Neo4j 适配器无连接池**：`Neo4jGraphRepository._with_session` 每次 `GraphDatabase.driver(...)` 再 `close()`。
-- **Oxigraph 本机易损坏**：Windows 上强杀 uvicorn 后 `Store` 常 `Invalid RocksDB`，现行处理是挪开 `oxigraph/` 空库重启，**对象/关系类型层会丢**（设置在 SQLite，一般还在）。规格未写恢复策略。
+- **Oxigraph 本机易损坏**：已改为 `ontology.nq` 原子快照 + 内存 Store；异常关闭不再依赖 RocksDB 目录。旧 `oxigraph/` 仅作一次性迁移。
 
 ## 已从本清单划掉（对照 2026-09-11 之后已落地，勿再当缺口）
 
-- 本体页：新建对象/关系、对象与关系详情走弹窗；主页面对象列表 + 对象关系网。
+- 本体页：新建对象/关系、对象与关系详情走弹窗；主页面对象关系网（无对象列表）。
 - 设置页：模型供应商卡片网格；新增/编辑弹窗；去掉点状空占位。
 - 模型供应商：SQLite 密文；接口不回传 `api_key`；页面不回填、不写 `localStorage`。
 - 设置页 tips、Dify 浅色工作台、新建对象可附带可选属性：已在现行页里。

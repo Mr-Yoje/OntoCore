@@ -47,7 +47,7 @@ OntoCore 是本体管理工具：维护对象、属性、关系，从说明书�
 
 ## 2. 权威分层与存储映射
 
-- **类型层**：RDF + 受约束 OWL 剖面，嵌入式 RDF 库（默认 Oxigraph）。
+- **类型层**：运行时用嵌入式 Oxigraph（内存）；权威落盘为 `ontology.nq`（每次写入原子替换）。不再把常驻 `oxigraph/` RocksDB 当作唯一真相，避免进程被杀导致库损坏。旧 `oxigraph/` 仅在没有快照时尝试迁移。
 - **实例层**：属性图（Neo4j；测试可用内存图）。节点/边必须映射到已确认对象或关系。
 - 图库不可用时，不得把实例写进类型层充数。
 
@@ -57,7 +57,7 @@ OntoCore 是本体管理工具：维护对象、属性、关系，从说明书�
 
 序列化：Turtle / JSON-LD。自有 JSON 不是类型层权威。第一期一个工作本体，IRI 前缀默认 `https://ontocore.local/ns/working#`。IRI 写入后稳定；改名只改显示名与图侧 `onto_label`。
 
-本机运行数据目录：`ONTOCORE_DATA_DIR`，缺省 `./data`（相对启动后端时的工作目录，开发时一般为 `backend/data`）。其中：`ontocore.db`（作业、候选、模型供应商密文）、`master.key`（或环境变量 `ONTOCORE_SECRET_KEY`）、`oxigraph/`。密钥只放本机，不进仓库；SQLite 与 JSON 都不存明文 `api_key`。旧 `settings.json` 在首次读取时迁入 SQLite 并去掉明文。
+本机运行数据目录：`ONTOCORE_DATA_DIR`，缺省 `./data`（相对启动后端时的工作目录，开发时一般为 `backend/data`）。其中：`ontocore.db`（作业、候选、模型供应商密文）、`master.key`（或环境变量 `ONTOCORE_SECRET_KEY`）、`ontology.nq`（对象/属性/关系快照）。密钥只放本机，不进仓库；SQLite 与 JSON 都不存明文 `api_key`。旧 `settings.json` 在首次读取时迁入 SQLite 并去掉明文。
 
 ## 3. 架构
 
@@ -110,7 +110,7 @@ DocumentIngress、Extractor（`hybrid` / `llm_only` / `rules_only`）、Candidat
 五个页签。视觉参考 Dify 浅色工作台：白侧栏、灰画布、白卡片、大圆角、主色约 `#155eef`、Noto Sans SC。成功/错误用右上角弹出 tips，不嵌在表单正文里。
 
 **本体**  
-主页面左栏已有对象列表、右栏对象关系网；顶栏「新建对象」「新建关系」打开弹窗。新建对象弹窗可附带可选属性行。点列表或图上节点打开对象详情弹窗（改显示名/定义/父对象、属性、删除）。点图上的边打开关系详情弹窗（可删除）。新建表单不嵌在主页面正文里。
+主页面对象关系网铺满；顶栏「新建对象」「新建关系」打开弹窗。新建对象弹窗可附带可选属性行。点图上节点打开对象详情弹窗（改显示名/定义/父对象、属性、删除）。点图上的边打开关系详情弹窗（可删除）。主页面不放对象列表。新建表单不嵌在主页面正文里。
 
 **上传**  
 文件 + 抽取器。非 `rules_only` 时选供应商与具体模型（列表来自该供应商接口）、可选 thinking。无领域包。
