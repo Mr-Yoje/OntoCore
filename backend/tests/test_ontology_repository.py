@@ -178,3 +178,30 @@ def test_attributes_for_includes_inherited():
     ))
     attrs = repo.attributes_for(f"{NS}Critical")
     assert {a.label for a in attrs} == {"名称", "等待期"}
+
+
+def test_disk_repo_reopens_from_snapshot(tmp_path):
+    first = OntologyRepository(str(tmp_path))
+    first.create_object(OntoObject(iri=f"{NS}Product", label="保险产品", definition="一种产品"))
+    first.close()
+    second = OntologyRepository(str(tmp_path))
+    try:
+        objects = second.snapshot().objects
+        assert len(objects) == 1
+        assert objects[0].label == "保险产品"
+    finally:
+        second.close()
+
+
+def test_disk_repo_opens_when_oxigraph_dir_is_corrupt(tmp_path):
+    first = OntologyRepository(str(tmp_path))
+    first.create_object(OntoObject(iri=f"{NS}Product", label="保险产品", definition="一种产品"))
+    first.close()
+    rocks = tmp_path / "oxigraph"
+    rocks.mkdir(exist_ok=True)
+    (rocks / "CURRENT").write_text("not-a-rocksdb", encoding="utf-8")
+    second = OntologyRepository(str(tmp_path))
+    try:
+        assert second.snapshot().objects[0].label == "保险产品"
+    finally:
+        second.close()

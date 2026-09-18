@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from contextlib import asynccontextmanager
 from dataclasses import asdict, is_dataclass
 from pathlib import Path
 from typing import Any, Literal
@@ -205,9 +206,15 @@ def create_app(
     job_service = JobService(jobs, candidates, ontology, factory)
     review = ReviewService(candidates, ontology, projector, jobs, graph_repo)
 
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI):
+        yield
+        ontology.close()
+
     app = FastAPI(
         title="OntoCore",
         description="对象、属性、关系、定义与实例的 HTTP 接口",
+        lifespan=lifespan,
     )
     app.add_middleware(
         CORSMiddleware,

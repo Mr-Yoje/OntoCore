@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import os
 import threading
+from pathlib import Path
 
 from pyoxigraph import DefaultGraph, Literal, NamedNode, Quad, RdfFormat, Store
 
@@ -54,10 +56,91 @@ def _declared_iris(store: Store) -> set[str]:
     return iris
 
 
+_SNAPSHOT_NAME = "ontology.nq"
+
+
 class OntologyRepository:
     def __init__(self, path: str | None = None) -> None:
         self._lock = threading.RLock()
-        self._store = Store() if path is None else Store(path)
+        self._store = Store()
+        self._snapshot_path: Path | None = None
+        self._lock_file = None
+        if path is not None:
+            root = Path(path)
+            data_dir = root.parent if root.name == "oxigraph" else root
+            data_dir.mkdir(parents=True, exist_ok=True)
+            self._snapshot_path = data_dir / _SNAPSHOT_NAME
+            self._acquire_lock(data_dir)
+            self._load_durable(data_dir)
+
+    def _acquire_lock(self, data_dir: Path) -> None:
+        lock_path = data_dir / "ontology.lock"
+        handle = open(lock_path, "a+b")
+        handle.seek(0, os.SEEK_END)
+        if handle.tell() == 0:
+            handle.write(b"\0")
+            handle.flush()
+        handle.seek(0)
+        try:
+            if os.name == "nt":
+                import msvcrt
+
+                msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError as exc:
+            handle.close()
+            raise OntologyWriteError("本体库已被其他进程打开") from exc
+        self._lock_file = handle
+
+    def _load_durable(self, data_dir: Path) -> None:
+        snapshot = data_dir / _SNAPSHOT_NAME
+        if snapshot.exists() and snapshot.stat().st_size > 0:
+            self._store.bulk_load(snapshot.read_bytes(), format=RdfFormat.N_QUADS)
+            return
+        rocks = data_dir / "oxigraph" if data_dir.name != "oxigraph" else data_dir
+        if not rocks.exists():
+            return
+        try:
+            legacy = Store(str(rocks))
+            payload = legacy.dump(format=RdfFormat.N_QUADS)
+        except (OSError, RuntimeError):
+            return
+        if payload:
+            self._store.bulk_load(payload, format=RdfFormat.N_QUADS)
+            self._persist()
+
+    def _persist(self) -> None:
+        if self._snapshot_path is None:
+            return
+        payload = self._store.dump(format=RdfFormat.N_QUADS)
+        tmp = self._snapshot_path.with_name(self._snapshot_path.name + ".tmp")
+        tmp.write_bytes(payload)
+        os.replace(tmp, self._snapshot_path)
+
+    def close(self) -> None:
+        with self._lock:
+            try:
+                self._persist()
+            finally:
+                handle = self._lock_file
+                self._lock_file = None
+                if handle is not None:
+                    try:
+                        handle.seek(0)
+                        if os.name == "nt":
+                            import msvcrt
+
+                            msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+                        else:
+                            import fcntl
+
+                            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+                    except OSError:
+                        pass
+                    handle.close()
 
     def snapshot(self) -> TypeSnapshot:
         with self._lock:
@@ -103,6 +186,7 @@ class OntologyRepository:
                 if self._parents(item.iri):
                     raise OntologyWriteError(f"object already has a parent: {item.iri}")
                 self._add(subject, RDFS_SUBCLASS_OF, _node(item.parent_iri))
+            self._persist()
 
     def update_object(
         self,
@@ -133,6 +217,7 @@ class OntologyRepository:
                 self._clear_predicate(subject, RDFS_SUBCLASS_OF)
                 if parent_iri is not None:
                     self._add(subject, RDFS_SUBCLASS_OF, _node(parent))
+            self._persist()
 
     def delete_object(self, iri: str) -> None:
         with self._lock:
@@ -146,6 +231,7 @@ class OntologyRepository:
             if any(self._store.quads_for_pattern(None, RDFS_RANGE, node)):
                 raise OntologyWriteError(f"object is referenced by a property range: {iri}")
             self._remove_subject(iri)
+            self._persist()
 
     def create_attribute(self, item: OntoAttribute) -> None:
         with self._lock:
@@ -160,6 +246,7 @@ class OntologyRepository:
             self._add(subject, RDFS_COMMENT, _literal(item.definition))
             self._add(subject, RDFS_DOMAIN, _node(item.owner_iri))
             self._add(subject, RDFS_RANGE, _node(LITERAL_RANGE[item.literal_kind]))
+            self._persist()
 
     def update_attribute(
         self,
@@ -181,12 +268,14 @@ class OntologyRepository:
                 self._replace(subject, RDFS_COMMENT, _literal(definition))
             if literal_kind is not None:
                 self._replace(subject, RDFS_RANGE, _node(LITERAL_RANGE[literal_kind]))
+            self._persist()
 
     def delete_attribute(self, iri: str) -> None:
         with self._lock:
             if self._attribute_by_iri(iri) is None:
                 raise OntologyWriteError(f"attribute does not exist: {iri}")
             self._remove_subject(iri)
+            self._persist()
 
     def create_relation(self, item: OntoRelation) -> None:
         with self._lock:
@@ -206,6 +295,7 @@ class OntologyRepository:
             self._add(subject, RDFS_COMMENT, _literal(item.definition))
             self._add(subject, RDFS_DOMAIN, _node(item.source_iri))
             self._add(subject, RDFS_RANGE, _node(item.target_iri))
+            self._persist()
 
     def update_relation(
         self,
@@ -222,12 +312,14 @@ class OntologyRepository:
                 self._replace(subject, RDFS_LABEL, _literal(label))
             if definition is not None:
                 self._replace(subject, RDFS_COMMENT, _literal(definition))
+            self._persist()
 
     def delete_relation(self, iri: str) -> None:
         with self._lock:
             if self._relation_by_iri(iri) is None:
                 raise OntologyWriteError(f"relation does not exist: {iri}")
             self._remove_subject(iri)
+            self._persist()
 
     def inherited_attributes(self, object_iri: str) -> list[OntoAttribute]:
         with self._lock:
@@ -291,6 +383,7 @@ class OntologyRepository:
                     self._remove_subject(iri)
             for quad in incoming:
                 self._store.add(quad)
+            self._persist()
 
     def has_iri(self, iri: str) -> bool:
         with self._lock:
