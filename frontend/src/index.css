@@ -167,6 +167,9 @@ h3 { font-size: 14px; }
   gap: 16px;
   align-items: start;
 }
+.ontology-stage {
+  grid-template-columns: minmax(0, 1fr);
+}
 .graph-stage {
   grid-template-columns: minmax(0, 1fr) 300px;
 }
@@ -382,9 +385,6 @@ th {
 }
 .modal-body {
   padding: 16px;
-}
-.object-panel .entity-list {
-  max-height: 460px;
 }
 
 .entity-list {

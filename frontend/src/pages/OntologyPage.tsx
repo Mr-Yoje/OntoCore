@@ -331,28 +331,7 @@ export function OntologyPage() {
           </button>
         </div>
       </header>
-      <div className="layout">
-        <section className="panel stack object-panel">
-          <h2>对象</h2>
-          {objects.length === 0 ? (
-            <p className="muted">还没有对象，请先新建</p>
-          ) : (
-            <ul className="entity-list">
-              {objects.map((o) => (
-                <li key={o.iri}>
-                  <button
-                    type="button"
-                    aria-pressed={selectedIri === o.iri && objectModal === "edit"}
-                    onClick={() => openEditObject(o.iri)}
-                  >
-                    {o.label}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-
+      <div className="layout ontology-stage">
         <section className="panel panel-canvas">
           <TypeNetwork
             nodes={network.nodes}
