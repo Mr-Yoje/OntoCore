@@ -3,7 +3,7 @@
 日期：2026-09-15  
 状态：现行实现规格  
 范围：模块化单体；非结构化文本抽取闭环；本体按对象 / 属性 / 关系管理  
-取代：[`2026-09-10-ontocore-objects-relations-design.md`](2026-09-10-ontocore-objects-relations-design.md)（保留作历史）。实现以**本文件**为准。  
+取代：[`2026-09-10-ontocore-objects-relations-design.md`](2026-09-10-ontocore-objects-relations-design.md)（保留作历史）。实现以**本文件**为准，但抽取引擎（抽取器种类、上传引导、判重、接受时覆盖/新增/融合）以 [`2026-09-20-extraction-engine-design.md`](2026-09-20-extraction-engine-design.md) 为准，落地前不要按本文件的 `hybrid` / `rules_only` 条款实现。  
 对照更早草案：[`2026-09-10-ontocore-design.md`](2026-09-10-ontocore-design.md) 仍保留不改。
 
 ## 相对 2026-09-10 版的融合要点
