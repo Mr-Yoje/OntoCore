@@ -80,6 +80,28 @@ class ParsedDocument:
     blocks: tuple[TextBlock, ...]
 
 
+@dataclass(frozen=True)
+class SimilarRef:
+    iri: str
+    label: str
+
+
+@dataclass
+class ExtractionGuides:
+    objects: list[dict]
+    attributes: list[dict]
+    relations: list[dict]
+    instances: list[dict]
+
+    def as_prompt_dict(self) -> dict:
+        return {
+            "objects": self.objects,
+            "attributes": self.attributes,
+            "relations": self.relations,
+            "instances": self.instances,
+        }
+
+
 @dataclass
 class ObjectCandidateDraft:
     iri: str
@@ -89,6 +111,7 @@ class ObjectCandidateDraft:
     evidence: str
     block_id: str
     confidence: float
+    similar_to: list[SimilarRef] = field(default_factory=list)
 
 
 @dataclass
@@ -113,6 +136,7 @@ class RelationCandidateDraft:
     evidence: str
     block_id: str
     confidence: float
+    similar_to: list[SimilarRef] = field(default_factory=list)
 
 
 @dataclass

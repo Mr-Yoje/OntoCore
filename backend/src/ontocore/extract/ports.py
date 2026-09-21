@@ -1,7 +1,7 @@
 from typing import Protocol
 
 from ontocore.extract.llm import LlmGateway
-from ontocore.models import ExtractionResult, ParsedDocument, TypeSnapshot
+from ontocore.models import ExtractionGuides, ExtractionResult, ParsedDocument, TypeSnapshot
 
 
 class Extractor(Protocol):

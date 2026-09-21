@@ -9,13 +9,37 @@ from ontocore.errors import StructuredOutputError
 class LlmGateway(Protocol):
     def complete_structured(self, schema: dict, messages: list[dict]) -> dict: ...
 
+    def embed(self, texts: list[str]) -> list[list[float]]: ...
+
 
 class FakeLlmGateway:
-    def __init__(self, canned: dict) -> None:
+    def __init__(
+        self,
+        canned: dict | list[dict],
+        *,
+        embeddings: dict[str, list[float]] | None = None,
+        fail_embed: bool = False,
+    ) -> None:
         self._canned = canned
+        self._embeddings = embeddings or {}
+        self._fail_embed = fail_embed
+        self.messages_log: list[list[dict]] = []
 
     def complete_structured(self, schema: dict, messages: list[dict]) -> dict:
+        self.messages_log.append(messages)
+        if isinstance(self._canned, list):
+            if not self._canned:
+                raise StructuredOutputError("fake gateway queue exhausted")
+            item = self._canned.pop(0)
+            if isinstance(item, dict) and item.get("__error__"):
+                raise StructuredOutputError("fake gateway error")
+            return item
         return self._canned
+
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        if self._fail_embed:
+            raise StructuredOutputError("fake gateway embed failed")
+        return [self._embeddings.get(text, [1.0, 0.0]) for text in texts]
 
 
 class LiteLlmGateway:

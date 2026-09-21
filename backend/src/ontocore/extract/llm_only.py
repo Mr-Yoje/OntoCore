@@ -49,7 +49,9 @@ def result_from_dict(payload: dict) -> ExtractionResult:
         kept = []
         for item in items:
             try:
-                kept.append(_take(cls, item))
+                cleaned = dict(item)
+                cleaned.pop("similar_to", None)
+                kept.append(_take(cls, cleaned))
             except (TypeError, ValueError, KeyError):
                 block_id = ""
                 if isinstance(item, dict):
