@@ -93,6 +93,15 @@ class ReviewService:
             items.append(_take(OntoAttribute, row.payload, _ATTRIBUTE_FIELDS))
         return items
 
+    def _accept_owned_attribute_candidates(self, job_id: str, owner_iri: str) -> None:
+        for row in self._candidates.list_type_candidates(job_id):
+            if row.kind != "attribute":
+                continue
+            if row.payload.get("owner_iri") != owner_iri:
+                continue
+            if row.status != "accepted":
+                self._candidates.set_type_status(row.id, "accepted")
+
     def _register(self, iri: str, label: str) -> None:
         self._projector.register_type(iri, label)
 
@@ -252,6 +261,8 @@ class ReviewService:
     ) -> StoredTypeCandidate:
         stored = self._candidates.get_type(candidate_id)
         payload = stored.payload
+        if stored.status == "accepted":
+            return stored
         if stored.kind == "attribute":
             item = _take(OntoAttribute, payload, _ATTRIBUTE_FIELDS)
             self._ontology.create_attribute(item)
@@ -275,8 +286,10 @@ class ReviewService:
                 self._accept_overwrite(stored, target_iri)
             else:
                 self._accept_merge(stored, target_iri)
+            if stored.kind == "object":
+                self._accept_owned_attribute_candidates(stored.job_id, payload.get("iri"))
             return self._candidates.set_type_status(candidate_id, "accepted")
-        raise OntologyWriteError("无相似项时只能新增")
+        raise OntologyWriteError("不支持的导入方式")
 
     def reject_type(self, candidate_id: str) -> StoredTypeCandidate:
         return self._candidates.set_type_status(candidate_id, "rejected")

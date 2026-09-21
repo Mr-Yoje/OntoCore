@@ -273,7 +273,7 @@ export function SettingsPage() {
         <section className="stack">
           <h2>模型供应商</h2>
           <p className="muted">
-            这里只登记模型供应商的地址和密钥。抽取器和具体模型在上传页选择。
+            这里只登记模型供应商的地址和密钥。上传时再选具体模型。
           </p>
           <div className="vendor-panel">
             <div className="vendor-grid">

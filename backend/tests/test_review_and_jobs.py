@@ -1,6 +1,6 @@
 from ontocore.candidates.store import CandidateStore
 from ontocore.constants import NS
-from ontocore.errors import ConflictError, GraphUnavailable
+from ontocore.errors import ConflictError, GraphUnavailable, OntologyWriteError
 from ontocore.extract.llm import FakeLlmGateway
 from ontocore.graph.memory import MemoryGraphRepository
 from ontocore.graph.memory import MemoryGraphRepository as MemoryGraph
@@ -347,6 +347,86 @@ def test_accept_overwrite_replaces_object_attributes(tmp_path):
     assert product.label == "新名"
     owned = [a for a in snap.attributes if a.owner_iri == f"{NS}Product"]
     assert {a.label for a in owned} == {"新属性"}
+
+
+def test_overwrite_then_accept_attribute_does_not_create_orphan(tmp_path):
+    onto = OntologyRepository(str(tmp_path / "o"))
+    onto.create_object(OntoObject(iri=f"{NS}Product", label="旧名", definition="旧定义"))
+    jobs = JobStore(str(tmp_path / "j.db"))
+    cands = CandidateStore(str(tmp_path / "j.db"))
+    job = jobs.create("a.txt", "llm", "fake")
+    cands.replace_job_results(job.id, ExtractionResult(
+        object_candidates=[ObjectCandidateDraft(
+            iri=f"{NS}New", label="新名", definition="新定义", parent_iri=None,
+            evidence="e", block_id="b0", confidence=0.9,
+            similar_to=[SimilarRef(iri=f"{NS}Product", label="旧名")],
+        )],
+        attribute_candidates=[AttributeCandidateDraft(
+            iri=f"{NS}newAttr", label="新属性", definition="y",
+            owner_iri=f"{NS}New", literal_kind="text",
+            evidence="e", block_id="b0", confidence=0.9,
+        )],
+        relation_candidates=[], instance_suggestions=[], instance_rel_suggestions=[],
+    ))
+    review = ReviewService(cands, onto, Projector(MemoryGraph()), jobs, MemoryGraph(), lambda *a, **k: None)
+    oid = [r for r in cands.list_type_candidates(job.id) if r.kind == "object"][0].id
+    review.accept_type(oid, mode="overwrite", target_iri=f"{NS}Product")
+    attr = [r for r in cands.list_type_candidates(job.id) if r.kind == "attribute"][0]
+    assert attr.status == "accepted"
+    review.accept_type(attr.id)
+    owned = [a for a in onto.snapshot().attributes if a.owner_iri == f"{NS}Product"]
+    assert len(owned) == 1
+    assert owned[0].label == "新属性"
+    assert not any(a.owner_iri == f"{NS}New" for a in onto.snapshot().attributes)
+
+
+def test_unknown_accept_mode_uses_distinct_message(tmp_path):
+    onto = OntologyRepository(str(tmp_path / "o"))
+    onto.create_object(OntoObject(iri=f"{NS}Product", label="旧名", definition="旧定义"))
+    jobs = JobStore(str(tmp_path / "j.db"))
+    cands = CandidateStore(str(tmp_path / "j.db"))
+    job = jobs.create("a.txt", "llm", "fake")
+    cands.replace_job_results(job.id, ExtractionResult(
+        object_candidates=[ObjectCandidateDraft(
+            iri=f"{NS}New", label="新名", definition="新定义", parent_iri=None,
+            evidence="e", block_id="b0", confidence=0.9,
+            similar_to=[SimilarRef(iri=f"{NS}Product", label="旧名")],
+        )],
+        attribute_candidates=[], relation_candidates=[],
+        instance_suggestions=[], instance_rel_suggestions=[],
+    ))
+    review = ReviewService(cands, onto, Projector(MemoryGraph()), jobs, MemoryGraph(), lambda *a, **k: None)
+    oid = [r for r in cands.list_type_candidates(job.id) if r.kind == "object"][0].id
+    try:
+        review.accept_type(oid, mode="zap", target_iri=f"{NS}Product")
+    except OntologyWriteError as exc:
+        assert str(exc) == "不支持的导入方式"
+    else:
+        raise AssertionError("expected OntologyWriteError")
+
+
+def test_job_partial_when_judge_json_malformed(tmp_path):
+    ontology = OntologyRepository(str(tmp_path / "onto"))
+    ontology.create_object(OntoObject(iri=f"{NS}Other", label="其它", definition="d"))
+    extract_payload = {
+        "object_candidates": [{
+            "iri": f"{NS}New", "label": "新品", "definition": "d",
+            "parent_iri": None, "evidence": "e", "block_id": "b0", "confidence": 0.5,
+        }],
+        "attribute_candidates": [], "relation_candidates": [],
+        "instance_suggestions": [], "instance_rel_suggestions": [],
+    }
+    gw = FakeLlmGateway([extract_payload, {"object_similar": {f"{NS}New": None}}])
+    jobs = JobStore(str(tmp_path / "j.db"))
+    cands = CandidateStore(str(tmp_path / "j.db"))
+    service = JobService(jobs, cands, ontology, lambda *a, **k: gw, MemoryGraph())
+    job = jobs.create("a.txt", "llm", "fake", guide_object_iris=[])
+    done = service.run(job.id, "a.txt", "标题\n\n正文。".encode("utf-8"))
+    assert done.status == "partial"
+    assert "判重失败" in (done.error or "")
+    rows = cands.list_type_candidates(job.id)
+    assert rows
+    assert rows[0].payload["label"] == "新品"
 
 
 def test_accept_merge_writes_llm_result(tmp_path):

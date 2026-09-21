@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from ontocore.candidates.store import CandidateStore
-from ontocore.errors import IngressError, StructuredOutputError
+from ontocore.errors import IngressError
 from ontocore.extract.dedup import attach_similar
 from ontocore.extract.guides import build_guides
 from ontocore.extract.ingress import parse_upload
@@ -102,7 +102,7 @@ class JobService:
                         guide_relation_iris=job.guide_relation_iris,
                         use_embed=bool(job.embed_model),
                     )
-                except StructuredOutputError:
+                except Exception:
                     self._candidates.replace_job_results(job_id, result)
                     return self._jobs.set_status(job_id, "partial", error="判重失败")
             self._candidates.replace_job_results(job_id, result)
