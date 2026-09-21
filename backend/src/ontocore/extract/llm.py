@@ -77,7 +77,10 @@ class LiteLlmGateway:
         try:
             response = litellm.completion(**kwargs)
         except Exception as exc:
-            raise StructuredOutputError(str(exc)) from exc
+            from ontocore.faults import log_fault, public_llm_message
+
+            log_fault(code="OC-3101", kind="business", detail=public_llm_message(str(exc)), exc=exc)
+            raise StructuredOutputError(public_llm_message(str(exc))) from exc
 
         content = response.choices[0].message.content
         if not content:
@@ -95,7 +98,10 @@ class LiteLlmGateway:
                 api_base=self._api_base or None,
             )
         except Exception as exc:
-            raise StructuredOutputError(str(exc)) from exc
+            from ontocore.faults import log_fault, public_llm_message
+
+            log_fault(code="OC-3101", kind="business", detail=public_llm_message(str(exc)), exc=exc)
+            raise StructuredOutputError(public_llm_message(str(exc))) from exc
         vectors: list[list[float]] = []
         for item in response.data:
             if isinstance(item, dict):

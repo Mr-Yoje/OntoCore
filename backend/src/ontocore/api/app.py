@@ -7,21 +7,32 @@ from pathlib import Path
 from typing import Any, Literal
 
 from fastapi import FastAPI, File, Form, Query, Request, UploadFile
+from fastapi.exceptions import RequestValidationError
+from fastapi.exception_handlers import http_exception_handler, request_validation_exception_handler
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from ontocore.candidates.store import CandidateStore
 from ontocore.constants import NS
 from ontocore.errors import (
-    ConflictError,
+    AppError,
+    BusinessError,
     GraphUnavailable,
-    IngressError,
     OntologyWriteError,
-    ProfileViolation,
     StructuredOutputError,
 )
 from ontocore.extract.llm import LiteLlmGateway
+from ontocore.faults import (
+    KIND_BUSINESS,
+    KIND_SYSTEM,
+    configure_logging,
+    fault_body,
+    log_fault,
+    new_request_id,
+    public_llm_message,
+)
 from ontocore.graph.memory import MemoryGraphRepository
 from ontocore.graph.neo4j_repo import Neo4jGraphRepository
 from ontocore.graph.projector import Projector
@@ -32,6 +43,7 @@ from ontocore.ontology.repository import OntologyRepository
 from ontocore.review.service import ReviewService
 from ontocore.settings import (
     find_provider,
+    list_litellm_prefixes,
     list_provider_models,
     load_settings,
     public_settings,
@@ -122,19 +134,7 @@ def _dump(value: Any) -> Any:
 
 
 def _probe_detail(raw: str) -> str:
-    text = (raw or "").strip() or "联通测试失败"
-    low = text.lower()
-    if "credential" in low or "api_key" in low or "unauthorized" in low or "401" in low:
-        return "密钥无效或未填写，请检查 API Key"
-    if "timeout" in low or "timed out" in low:
-        return "连接超时，请检查 Base URL 或网络"
-    if "connection" in low or "connect" in low or "name or service not known" in low:
-        return "无法连接服务，请检查 Base URL"
-    if "404" in low or "not found" in low:
-        return "接口不存在，请检查 Base URL 和模型名称"
-    if "429" in low:
-        return "请求过于频繁，请稍后再试"
-    return text[:400]
+    return public_llm_message(raw)
 
 
 def _write_detail(exc: OntologyWriteError) -> str:
@@ -188,6 +188,7 @@ def create_app(
 ) -> FastAPI:
     root = Path(data_dir) if data_dir is not None else Path(os.environ.get("ONTOCORE_DATA_DIR", "./data"))
     root.mkdir(parents=True, exist_ok=True)
+    configure_logging(root)
     sqlite = str(root / "ontocore.db")
     ontology = OntologyRepository(str(root / "oxigraph"))
     graph_repo = graph if graph is not None else _graph_from_env()
@@ -240,29 +241,74 @@ def create_app(
     app.state.jobs = jobs
     app.state.review = review
 
-    @app.exception_handler(OntologyWriteError)
-    async def ontology_write_handler(_request: Request, exc: OntologyWriteError) -> JSONResponse:
-        return JSONResponse(status_code=400, content={"detail": _write_detail(exc)})
+    @app.middleware("http")
+    async def request_context(request: Request, call_next):
+        rid = request.headers.get("x-request-id") or new_request_id()
+        request.state.request_id = rid
+        response = await call_next(request)
+        response.headers["X-Request-ID"] = rid
+        return response
 
-    @app.exception_handler(ConflictError)
-    async def conflict_handler(_request: Request, exc: ConflictError) -> JSONResponse:
-        return JSONResponse(status_code=409, content={"detail": exc.message})
+    def _request_id(request: Request) -> str:
+        return getattr(request.state, "request_id", None) or new_request_id()
 
-    @app.exception_handler(IngressError)
-    async def ingress_handler(_request: Request, exc: IngressError) -> JSONResponse:
-        return JSONResponse(status_code=400, content={"detail": str(exc) or "无法提取文本"})
+    def _fault(
+        request: Request,
+        *,
+        status: int,
+        code: str,
+        kind: str,
+        detail: str,
+        exc: BaseException | None = None,
+    ) -> JSONResponse:
+        rid = _request_id(request)
+        log_fault(code=code, kind=kind, detail=detail, request_id=rid, exc=exc)
+        return JSONResponse(
+            status_code=status,
+            content=fault_body(detail=detail, code=code, kind=kind, request_id=rid),
+        )
 
-    @app.exception_handler(GraphUnavailable)
-    async def graph_handler(_request: Request, exc: GraphUnavailable) -> JSONResponse:
-        return JSONResponse(status_code=503, content={"detail": "图不可用"})
-
-    @app.exception_handler(ProfileViolation)
-    async def profile_handler(_request: Request, exc: ProfileViolation) -> JSONResponse:
-        return JSONResponse(status_code=400, content={"detail": str(exc)})
+    @app.exception_handler(AppError)
+    async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
+        detail = str(exc) or exc.message
+        if isinstance(exc, OntologyWriteError):
+            detail = _write_detail(exc)
+        if isinstance(exc, GraphUnavailable):
+            detail = "图不可用"
+        return _fault(
+            request,
+            status=exc.http_status,
+            code=exc.code,
+            kind=exc.kind,
+            detail=detail,
+            exc=exc,
+        )
 
     @app.exception_handler(KeyError)
-    async def missing_handler(_request: Request, exc: KeyError) -> JSONResponse:
-        return JSONResponse(status_code=404, content={"detail": "未找到"})
+    async def missing_handler(request: Request, exc: KeyError) -> JSONResponse:
+        return _fault(
+            request,
+            status=404,
+            code="OC-1004",
+            kind=KIND_BUSINESS,
+            detail="未找到",
+            exc=exc,
+        )
+
+    @app.exception_handler(Exception)
+    async def unhandled_handler(request: Request, exc: Exception) -> JSONResponse:
+        if isinstance(exc, StarletteHTTPException):
+            return await http_exception_handler(request, exc)
+        if isinstance(exc, RequestValidationError):
+            return await request_validation_exception_handler(request, exc)
+        return _fault(
+            request,
+            status=500,
+            code="OC-9001",
+            kind=KIND_SYSTEM,
+            detail="服务出错，请查看日志",
+            exc=exc,
+        )
 
     @app.get("/api/objects", summary="列出对象")
     def list_objects():
@@ -400,6 +446,7 @@ def create_app(
         model: str | None = Form(None),
         thinking: bool = Form(False),
         embed_model: str | None = Form(None),
+        embed_provider_id: str | None = Form(None),
         guide_object_iris: list[str] = Form(default=[]),
         guide_relation_iris: list[str] = Form(default=[]),
         guide_instance_iris: list[str] = Form(default=[]),
@@ -407,11 +454,20 @@ def create_app(
         del extractor
         chosen_model = (model or "").strip()
         if not provider_id:
-            return JSONResponse(status_code=400, content={"detail": "请选择供应商"})
+            raise BusinessError("请选择供应商", code="OC-1101")
         if not chosen_model:
-            return JSONResponse(status_code=400, content={"detail": "请选择具体模型"})
-        if find_provider(load_settings(root), provider_id) is None:
-            return JSONResponse(status_code=400, content={"detail": "未找到所选供应商，请先在设置中添加"})
+            raise BusinessError("请选择抽取模型", code="OC-1102")
+        chosen_embed = (embed_model or "").strip()
+        if not chosen_embed:
+            raise BusinessError("请选择嵌入模型", code="OC-1103")
+        chosen_embed_provider = (embed_provider_id or "").strip()
+        if not chosen_embed_provider:
+            raise BusinessError("请选择嵌入供应商", code="OC-1104")
+        settings = load_settings(root)
+        if find_provider(settings, provider_id) is None:
+            raise BusinessError("未找到所选供应商，请先在设置中添加", code="OC-1105")
+        if find_provider(settings, chosen_embed_provider) is None:
+            raise BusinessError("未找到所选嵌入供应商，请先在设置中添加", code="OC-1106")
         data = await file.read()
         filename = file.filename or "upload.bin"
         job = jobs.create(
@@ -420,7 +476,8 @@ def create_app(
             chosen_model,
             provider_id=provider_id,
             thinking=thinking,
-            embed_model=(embed_model or "").strip() or None,
+            embed_model=chosen_embed,
+            embed_provider_id=chosen_embed_provider,
             guide_object_iris=guide_object_iris,
             guide_relation_iris=guide_relation_iris,
             guide_instance_iris=guide_instance_iris,
@@ -474,6 +531,10 @@ def create_app(
     def get_settings():
         return public_settings(root)
 
+    @app.get("/api/settings/prefixes", summary="LiteLLM 调用前缀")
+    def get_settings_prefixes():
+        return {"prefixes": list_litellm_prefixes()}
+
     @app.put("/api/settings", summary="保存供应商")
     def put_settings(body: SettingsBody):
         return save_settings(root, [item.model_dump() for item in body.providers])
@@ -482,20 +543,20 @@ def create_app(
     def list_settings_models(body: ProbeBody):
         _prefix, api_base, api_key = _provider_creds(root, body)
         if not api_base:
-            return JSONResponse(status_code=400, content={"detail": "请填写 Base URL"})
+            raise BusinessError("请填写 Base URL", code="OC-5001")
         if not api_key:
-            return JSONResponse(status_code=400, content={"detail": "请填写 API Key"})
+            raise BusinessError("请填写 API Key", code="OC-5001")
         try:
             models = list_provider_models(api_base, api_key)
         except (RuntimeError, ValueError) as exc:
-            return JSONResponse(status_code=400, content={"detail": _probe_detail(str(exc))})
+            raise BusinessError(_probe_detail(str(exc)), code="OC-5001") from exc
         return {"models": models}
 
     @app.post("/api/settings/test", summary="测试模型联通")
     def test_settings(body: ProbeBody):
         model = body.model.strip()
         if not model:
-            return JSONResponse(status_code=400, content={"detail": "请选择具体模型"})
+            raise BusinessError("请选择具体模型", code="OC-5001")
         prefix, api_base, api_key = _provider_creds(root, body)
         litellm_model = resolve_litellm_model(prefix, model)
         gateway = LiteLlmGateway(
@@ -507,7 +568,7 @@ def create_app(
         try:
             preview = gateway.probe()
         except StructuredOutputError as exc:
-            return JSONResponse(status_code=400, content={"detail": _probe_detail(str(exc))})
+            raise BusinessError(_probe_detail(str(exc)), code="OC-5001") from exc
         return {"ok": True, "model": litellm_model, "preview": preview}
 
     return app

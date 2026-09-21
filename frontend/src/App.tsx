@@ -23,8 +23,8 @@ const links: { to: string; label: string; icon: string; end?: boolean }[] = [
   },
   {
     to: "/upload",
-    label: "上传",
-    icon: "M12 16V5m0 0 4 4M12 5 8 9M5 19h14",
+    label: "数据源",
+    icon: "M7 6h11v13H7V6Zm-2 2v11a2 2 0 0 0 2 2h9M10 10h5M10 13.5h5",
   },
   {
     to: "/review",

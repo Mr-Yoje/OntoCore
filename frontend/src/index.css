@@ -334,8 +334,16 @@ th {
   line-height: 1.5;
   color: var(--text);
 }
-.tip p { margin: 0; flex: 1; }
-.tip-ok, .tip-error { border-left: 3px solid var(--accent); }
+.tip p {
+  margin: 0;
+  flex: 1;
+  overflow: hidden;
+  word-break: break-word;
+  max-height: 4.5em;
+}
+.tip-ok { border-left: 3px solid var(--accent); }
+.tip-error, .tip-business { border-left: 3px solid #98a2b3; }
+.tip-system { border-left: 3px solid #161b26; }
 .tip-dismiss {
   border: 0;
   background: transparent;

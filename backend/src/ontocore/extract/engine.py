@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import json
 
-from ontocore.errors import StructuredOutputError
 from ontocore.extract.chunking import SHORT_TEXT_LIMIT, extract_texts
 from ontocore.extract.llm import LlmGateway
 from ontocore.extract.llm_only import EXTRACTION_SCHEMA, result_from_dict
+from ontocore.faults import KIND_BUSINESS, log_fault, public_llm_message
 from ontocore.models import (
     BlockFailure,
     ExtractionGuides,
@@ -61,8 +61,16 @@ class LlmExtractor:
             ]
             try:
                 payload = llm.complete_structured(EXTRACTION_SCHEMA, messages)
-            except StructuredOutputError:
-                merged.block_failures.append(BlockFailure(block_id=block_id, reason="抽取失败"))
+            except Exception as exc:
+                log_fault(
+                    code="OC-3101",
+                    kind=KIND_BUSINESS,
+                    detail=public_llm_message(str(exc)),
+                    exc=exc,
+                )
+                merged.block_failures.append(
+                    BlockFailure(block_id=block_id, reason=public_llm_message(str(exc))),
+                )
                 continue
             part = result_from_dict(payload)
             merged.object_candidates.extend(part.object_candidates)

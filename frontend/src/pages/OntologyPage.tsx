@@ -1,7 +1,7 @@
 import { FormEvent, ReactNode, useCallback, useEffect, useState } from "react";
 import { api, localName } from "../api";
 import { TypeNetwork } from "../components/TypeNetwork";
-import { tipText, useTip } from "../tips";
+import { reportError, useTip } from "../tips";
 
 type OntoObject = {
   iri: string;
@@ -134,7 +134,7 @@ export function OntologyPage() {
         setAttributes([]);
       }
     } catch (e) {
-      showTip("error", tipText(e));
+      reportError(showTip, e);
     }
   }, [selectedIri, showTip]);
 
@@ -186,7 +186,7 @@ export function OntologyPage() {
       await refresh();
       showTip("ok", "已保存对象");
     } catch (e) {
-      showTip("error", tipText(e));
+      reportError(showTip, e);
     }
   }
 
@@ -198,7 +198,7 @@ export function OntologyPage() {
       setObjectModal(null);
       await refresh();
     } catch (e) {
-      showTip("error", tipText(e));
+      reportError(showTip, e);
     }
   }
 
@@ -238,7 +238,7 @@ export function OntologyPage() {
       setObjectModal(null);
       await refresh();
     } catch (e) {
-      showTip("error", tipText(e));
+      reportError(showTip, e);
       if (createdIri) {
         setLabel("");
         setDefinition("");
@@ -276,7 +276,7 @@ export function OntologyPage() {
       setAttrLocal("");
       await refresh();
     } catch (e) {
-      showTip("error", tipText(e));
+      reportError(showTip, e);
     }
   }
 
@@ -296,7 +296,7 @@ export function OntologyPage() {
       setRelModal(null);
       await refresh();
     } catch (e) {
-      showTip("error", tipText(e));
+      reportError(showTip, e);
     }
   }
 
@@ -308,7 +308,7 @@ export function OntologyPage() {
       setRelModal(null);
       await refresh();
     } catch (e) {
-      showTip("error", tipText(e));
+      reportError(showTip, e);
     }
   }
 
@@ -504,7 +504,7 @@ export function OntologyPage() {
                               await api.deleteAttribute(localName(a.iri));
                               await refresh();
                             } catch (e) {
-                              showTip("error", tipText(e));
+                              reportError(showTip, e);
                             }
                           }}
                         >

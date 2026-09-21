@@ -30,6 +30,8 @@ class Job:
     provider_id: str | None = None
     thinking: bool = False
     embed_model: str | None = None
+    embed_provider_id: str | None = None
+    error_kind: str | None = None
     guide_object_iris: list[str] = field(default_factory=list)
     guide_relation_iris: list[str] = field(default_factory=list)
     guide_instance_iris: list[str] = field(default_factory=list)
@@ -47,6 +49,10 @@ class JobStore:
                 conn.execute("ALTER TABLE jobs ADD COLUMN thinking INTEGER NOT NULL DEFAULT 0")
             if "embed_model" not in cols:
                 conn.execute("ALTER TABLE jobs ADD COLUMN embed_model TEXT")
+            if "embed_provider_id" not in cols:
+                conn.execute("ALTER TABLE jobs ADD COLUMN embed_provider_id TEXT")
+            if "error_kind" not in cols:
+                conn.execute("ALTER TABLE jobs ADD COLUMN error_kind TEXT")
             if "guide_object_iris" not in cols:
                 conn.execute(
                     "ALTER TABLE jobs ADD COLUMN guide_object_iris TEXT NOT NULL DEFAULT '[]'",
@@ -69,6 +75,8 @@ class JobStore:
         provider_id: str | None = None,
         thinking: bool = False,
         embed_model: str | None = None,
+        embed_provider_id: str | None = None,
+        error_kind: str | None = None,
         guide_object_iris: list[str] | None = None,
         guide_relation_iris: list[str] | None = None,
         guide_instance_iris: list[str] | None = None,
@@ -83,6 +91,8 @@ class JobStore:
             provider_id=provider_id,
             thinking=thinking,
             embed_model=embed_model or None,
+            embed_provider_id=embed_provider_id or None,
+            error_kind=error_kind or None,
             guide_object_iris=guide_object_iris or [],
             guide_relation_iris=guide_relation_iris or [],
             guide_instance_iris=guide_instance_iris or [],
@@ -90,8 +100,8 @@ class JobStore:
         with sqlite3.connect(self._path) as conn:
             conn.execute(
                 "INSERT INTO jobs (id, filename, extractor, model, status, error, provider_id, thinking, "
-                "embed_model, guide_object_iris, guide_relation_iris, guide_instance_iris) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "embed_model, embed_provider_id, error_kind, guide_object_iris, guide_relation_iris, guide_instance_iris) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     job.id,
                     job.filename,
@@ -102,6 +112,8 @@ class JobStore:
                     job.provider_id,
                     1 if job.thinking else 0,
                     job.embed_model,
+                    job.embed_provider_id,
+                    job.error_kind,
                     json.dumps(job.guide_object_iris),
                     json.dumps(job.guide_relation_iris),
                     json.dumps(job.guide_instance_iris),
@@ -114,7 +126,7 @@ class JobStore:
             conn.row_factory = sqlite3.Row
             cur = conn.execute(
                 "SELECT id, filename, extractor, model, status, error, provider_id, thinking, "
-                "embed_model, guide_object_iris, guide_relation_iris, guide_instance_iris "
+                "embed_model, embed_provider_id, error_kind, guide_object_iris, guide_relation_iris, guide_instance_iris "
                 "FROM jobs WHERE id = ?",
                 (job_id,),
             )
@@ -124,12 +136,16 @@ class JobStore:
             return _row_to_job(row)
 
     def set_status(
-        self, job_id: str, status: JobStatus, error: str | None = None,
+        self,
+        job_id: str,
+        status: JobStatus,
+        error: str | None = None,
+        error_kind: str | None = None,
     ) -> Job:
         with sqlite3.connect(self._path) as conn:
             cur = conn.execute(
-                "UPDATE jobs SET status = ?, error = ? WHERE id = ?",
-                (status, error, job_id),
+                "UPDATE jobs SET status = ?, error = ?, error_kind = ? WHERE id = ?",
+                (status, error, error_kind, job_id),
             )
             if cur.rowcount == 0:
                 raise KeyError(job_id)
@@ -149,6 +165,12 @@ def _row_to_job(row: sqlite3.Row) -> Job:
     embed_model = row["embed_model"] if "embed_model" in keys else None
     if embed_model == "":
         embed_model = None
+    embed_provider_id = row["embed_provider_id"] if "embed_provider_id" in keys else None
+    if embed_provider_id == "":
+        embed_provider_id = None
+    error_kind = row["error_kind"] if "error_kind" in keys else None
+    if error_kind == "":
+        error_kind = None
     return Job(
         id=row["id"],
         filename=row["filename"],
@@ -159,6 +181,8 @@ def _row_to_job(row: sqlite3.Row) -> Job:
         provider_id=provider_id,
         thinking=thinking,
         embed_model=embed_model,
+        embed_provider_id=embed_provider_id,
+        error_kind=error_kind,
         guide_object_iris=_load_iris(row, keys, "guide_object_iris"),
         guide_relation_iris=_load_iris(row, keys, "guide_relation_iris"),
         guide_instance_iris=_load_iris(row, keys, "guide_instance_iris"),

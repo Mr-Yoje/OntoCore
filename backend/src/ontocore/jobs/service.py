@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from ontocore.candidates.store import CandidateStore
-from ontocore.errors import IngressError
+from ontocore.errors import AppError, IngressError
 from ontocore.extract.dedup import attach_similar
 from ontocore.extract.guides import build_guides
 from ontocore.extract.ingress import parse_upload
 from ontocore.extract.registry import get_extractor
+from ontocore.faults import KIND_BUSINESS, KIND_SYSTEM, log_fault
 from ontocore.jobs.store import Job, JobStore
 from ontocore.models import ExtractionResult
 from ontocore.ontology.repository import OntologyRepository
@@ -54,7 +55,11 @@ class JobService:
     def _judge_llm(self, job: Job, chat):
         if not job.embed_model:
             return chat
-        embed = self._call_factory(job.embed_model, provider_id=job.provider_id, thinking=False)
+        embed = self._call_factory(
+            job.embed_model,
+            provider_id=job.embed_provider_id or job.provider_id,
+            thinking=False,
+        )
         if embed is chat:
             return chat
         return _ChatAndEmbed(chat, embed)
@@ -79,7 +84,8 @@ class JobService:
         try:
             doc = parse_upload(filename, data)
         except IngressError as exc:
-            self._jobs.set_status(job_id, "failed", error=str(exc))
+            log_fault(code=exc.code, kind=exc.kind, detail=str(exc) or "无法提取文本", exc=exc)
+            self._jobs.set_status(job_id, "failed", error=str(exc) or "无法提取文本", error_kind=exc.kind)
             raise
         try:
             extractor = get_extractor(job.extractor)
@@ -102,14 +108,35 @@ class JobService:
                         guide_relation_iris=job.guide_relation_iris,
                         use_embed=bool(job.embed_model),
                     )
-                except Exception:
+                except Exception as exc:
+                    log_fault(
+                        code="OC-3103",
+                        kind=KIND_BUSINESS,
+                        detail="判重失败",
+                        exc=exc,
+                    )
                     self._candidates.replace_job_results(job_id, result)
-                    return self._jobs.set_status(job_id, "partial", error="判重失败")
+                    return self._jobs.set_status(
+                        job_id, "partial", error="判重失败", error_kind=KIND_BUSINESS,
+                    )
             self._candidates.replace_job_results(job_id, result)
+        except AppError as exc:
+            log_fault(code=exc.code, kind=exc.kind, detail=str(exc) or exc.message, exc=exc)
+            return self._jobs.set_status(
+                job_id, "failed", error=str(exc) or exc.message, error_kind=exc.kind,
+            )
         except Exception as exc:
-            return self._jobs.set_status(job_id, "failed", error=str(exc))
+            log_fault(code="OC-9001", kind=KIND_SYSTEM, detail=str(exc) or "抽取失败", exc=exc)
+            return self._jobs.set_status(
+                job_id, "failed", error="抽取失败", error_kind=KIND_SYSTEM,
+            )
         if result.block_failures:
+            msg = result.block_failures[0].reason or "抽取失败"
             if _has_candidates(result):
-                return self._jobs.set_status(job_id, "partial")
-            return self._jobs.set_status(job_id, "failed")
+                return self._jobs.set_status(
+                    job_id, "partial", error=msg, error_kind=KIND_BUSINESS,
+                )
+            return self._jobs.set_status(
+                job_id, "failed", error=msg, error_kind=KIND_BUSINESS,
+            )
         return self._jobs.set_status(job_id, "completed")

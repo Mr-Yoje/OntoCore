@@ -87,6 +87,16 @@ def test_settings_stores_providers_not_extractor(tmp_path):
     assert client.get("/api/settings").json()["providers"][0]["has_api_key"] is True
 
 
+def test_settings_lists_litellm_prefixes():
+    client = TestClient(create_app())
+    response = client.get("/api/settings/prefixes")
+    assert response.status_code == 200
+    prefixes = response.json()["prefixes"]
+    assert prefixes == sorted(set(prefixes))
+    for name in ("openai", "deepseek", "anthropic", "dashscope"):
+        assert name in prefixes
+
+
 def test_settings_stores_selected_model(tmp_path):
     client = TestClient(create_app(data_dir=tmp_path))
     updated = client.put(
@@ -363,12 +373,16 @@ def test_post_jobs_extractor_error_is_not_500(tmp_path, monkeypatch):
     r = client.post(
         "/api/jobs",
         files={"file": ("a.txt", "标题\n\n正文。".encode("utf-8"), "text/plain")},
-        data={"provider_id": saved["id"], "model": "fake"},
+        data={"provider_id": saved["id"], "model": "fake", "embed_model": "fake-embed", "embed_provider_id": saved["id"]},
     )
     assert r.status_code == 200
     body = r.json()
     assert body["status"] == "failed"
-    assert "llm down" in body["error"]
+    assert body["error"] == "抽取失败"
+    assert "OC-" not in body["error"]
+    text = next((tmp_path / "logs").glob("ontocore_*.log")).read_text(encoding="utf-8")
+    assert "llm down" in text
+    assert "Traceback" in text
 
 
 def test_create_job_requires_provider_and_stores_guides(tmp_path, monkeypatch):
@@ -397,18 +411,98 @@ def test_create_job_requires_provider_and_stores_guides(tmp_path, monkeypatch):
     pid = client.get("/api/settings").json()["providers"][0]["id"]
     missing = client.post("/api/jobs", files={"file": ("a.txt", b"hi", "text/plain")})
     assert missing.status_code == 400
+    no_embed = client.post(
+        "/api/jobs",
+        files={"file": ("a.txt", b"hi", "text/plain")},
+        data={"provider_id": pid, "model": "deepseek-chat"},
+    )
+    assert no_embed.status_code == 400
+    assert "嵌入" in no_embed.json()["detail"]
     r = client.post(
         "/api/jobs",
         files={"file": ("a.txt", b"hi", "text/plain")},
         data={
             "provider_id": pid,
             "model": "deepseek-chat",
+            "embed_model": "embed-x",
+            "embed_provider_id": pid,
             "guide_object_iris": "https://ontocore.local/ns/working#Product",
         },
     )
     assert r.status_code == 200
     assert r.json()["extractor"] == "llm"
+    assert r.json()["embed_model"] == "embed-x"
+    assert r.json()["embed_provider_id"] == pid
     assert "https://ontocore.local/ns/working#Product" in r.json()["guide_object_iris"]
+
+
+def test_create_job_uses_separate_embed_provider(tmp_path, monkeypatch):
+    from ontocore.jobs.service import JobService
+
+    monkeypatch.setattr(
+        JobService,
+        "run",
+        lambda self, job_id, filename, data: self._jobs.set_status(job_id, "completed"),
+    )
+    client = TestClient(create_app(data_dir=tmp_path))
+    saved = client.put(
+        "/api/settings",
+        json={
+            "providers": [
+                {
+                    "label": "抽取供应商",
+                    "prefix": "openai",
+                    "api_base": "https://api.example.com",
+                    "api_key": "sk-chat",
+                    "model": "chat",
+                },
+                {
+                    "label": "嵌入供应商",
+                    "prefix": "dashscope",
+                    "api_base": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                    "api_key": "sk-embed",
+                    "model": "embed",
+                },
+            ]
+        },
+    ).json()["providers"]
+    chat_id, embed_id = saved[0]["id"], saved[1]["id"]
+    missing = client.post(
+        "/api/jobs",
+        files={"file": ("a.txt", b"hi", "text/plain")},
+        data={
+            "provider_id": chat_id,
+            "model": "chat",
+            "embed_model": "embed-x",
+        },
+    )
+    assert missing.status_code == 400
+    assert "嵌入" in missing.json()["detail"]
+    unknown = client.post(
+        "/api/jobs",
+        files={"file": ("a.txt", b"hi", "text/plain")},
+        data={
+            "provider_id": chat_id,
+            "model": "chat",
+            "embed_model": "embed-x",
+            "embed_provider_id": "missing",
+        },
+    )
+    assert unknown.status_code == 400
+    r = client.post(
+        "/api/jobs",
+        files={"file": ("a.txt", b"hi", "text/plain")},
+        data={
+            "provider_id": chat_id,
+            "model": "chat",
+            "embed_model": "embed-x",
+            "embed_provider_id": embed_id,
+        },
+    )
+    assert r.status_code == 200
+    assert r.json()["provider_id"] == chat_id
+    assert r.json()["embed_provider_id"] == embed_id
+    assert r.json()["embed_model"] == "embed-x"
 
 
 def test_accept_type_candidate_forwards_json_mode(tmp_path, monkeypatch):

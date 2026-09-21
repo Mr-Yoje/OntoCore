@@ -1,6 +1,7 @@
 import { FormEvent, ReactNode, useEffect, useState } from "react";
 import { api, exportJsonldHref, exportTurtleHref, type ProviderDraft } from "../api";
-import { tipText, useTip } from "../tips";
+import { providerSaveTip } from "../providerDraft";
+import { reportError, useTip } from "../tips";
 
 type Provider = ProviderDraft & { id: string };
 
@@ -10,6 +11,17 @@ type VendorDialog =
 
 function blankProvider(): ProviderDraft {
   return { label: "", prefix: "openai", api_base: "", api_key: "" };
+}
+
+function prefixOptions(catalog: string[], current: string) {
+  const names = new Set(catalog.filter(Boolean));
+  if (current) names.add(current);
+  const rest = [...names].filter((name) => name !== "openai").sort();
+  return names.has("openai") ? ["openai", ...rest] : rest;
+}
+
+function prefixLabel(name: string) {
+  return name === "openai" ? "openai（兼容接口）" : name;
 }
 
 function vendorKey(row: ProviderDraft, index: number) {
@@ -69,8 +81,13 @@ export function SettingsPage() {
   const [testing, setTesting] = useState(false);
   const [loadingModels, setLoadingModels] = useState(false);
   const [dialog, setDialog] = useState<VendorDialog | null>(null);
+  const [prefixes, setPrefixes] = useState<string[]>(["openai"]);
 
   useEffect(() => {
+    void api
+      .listSettingsPrefixes()
+      .then((body) => setPrefixes(body.prefixes?.length ? body.prefixes : ["openai"]))
+      .catch((e) => reportError(showTip, e));
     void api
       .getSettings()
       .then((s) => {
@@ -98,10 +115,10 @@ export function SettingsPage() {
                 [key]: result.models.includes(prev[key]) ? prev[key] : result.models[0] ?? "",
               }));
             })
-            .catch((e) => showTip("error", tipText(e)));
+            .catch((e) => reportError(showTip, e));
         });
       })
-      .catch((e) => showTip("error", tipText(e)));
+      .catch((e) => reportError(showTip, e));
   }, [showTip]);
 
   function dialogKey() {
@@ -168,7 +185,7 @@ export function SettingsPage() {
       }));
       showTip("ok", `已拉取 ${result.models.length} 个模型`);
     } catch (e) {
-      showTip("error", tipText(e));
+        reportError(showTip, e);
     } finally {
       setLoadingModels(false);
     }
@@ -177,6 +194,11 @@ export function SettingsPage() {
   async function saveDialog(ev: FormEvent) {
     ev.preventDefault();
     if (!dialog) return;
+    const missing = providerSaveTip(dialog.draft, dialog.mode);
+    if (missing) {
+      showTip("error", missing);
+      return;
+    }
     try {
       const draft = {
         ...dialog.draft,
@@ -204,7 +226,7 @@ export function SettingsPage() {
         }
       }
     } catch (e) {
-      showTip("error", tipText(e));
+        reportError(showTip, e);
     }
   }
 
@@ -228,7 +250,7 @@ export function SettingsPage() {
       })) as { ok?: boolean; model?: string };
       showTip("ok", result.ok ? `联通成功：${result.model}` : "联通成功");
     } catch (e) {
-      showTip("error", tipText(e));
+        reportError(showTip, e);
     } finally {
       setTesting(false);
     }
@@ -240,7 +262,7 @@ export function SettingsPage() {
       await persist(providers.filter((_, i) => i !== dialog.index));
       setDialog(null);
     } catch (e) {
-      showTip("error", tipText(e));
+        reportError(showTip, e);
     }
   }
 
@@ -250,7 +272,7 @@ export function SettingsPage() {
       await api.importOntology(ttl, force);
       showTip("ok", "导入完成");
     } catch (e) {
-      showTip("error", tipText(e));
+        reportError(showTip, e);
     }
   }
 
@@ -273,7 +295,7 @@ export function SettingsPage() {
         <section className="stack">
           <h2>模型供应商</h2>
           <p className="muted">
-            这里只登记模型供应商的地址和密钥。上传时再选具体模型。
+            这里只登记模型供应商的地址和密钥。数据源页再选抽取模型。
           </p>
           <div className="vendor-panel">
             <div className="vendor-grid">
@@ -353,9 +375,11 @@ export function SettingsPage() {
                 autoComplete="off"
                 name="vendor-prefix"
               >
-                <option value="openai">openai（兼容接口）</option>
-                <option value="deepseek">deepseek</option>
-                <option value="anthropic">anthropic</option>
+                {prefixOptions(prefixes, dialog.draft.prefix).map((name) => (
+                  <option key={name} value={name}>
+                    {prefixLabel(name)}
+                  </option>
+                ))}
               </select>
             </label>
             <label>
@@ -424,14 +448,12 @@ export function SettingsPage() {
                 onClick={() => void testLink()}
                 disabled={testing || loadingModels}
               >
-                {testing ? "测试中…" : "测试联通"}
+                {testing ? "测试中…" : "测试"}
               </button>
               {dialog.mode === "edit" ? (
-                <button type="button" className="btn-danger" onClick={() => void removeVendor()}>
-                  去掉此模型供应商
-                </button>
+                <button type="button" className="btn-danger" onClick={() => void removeVendor()}>删除</button>
               ) : null}
-              <button type="submit">保存模型供应商</button>
+              <button type="submit">保存</button>
             </div>
           </form>
         ) : null}

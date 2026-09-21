@@ -37,9 +37,52 @@ def test_job_store_persists_guides_and_embed(tmp_path):
     loaded = store.get(job.id)
     assert loaded.extractor == "llm"
     assert loaded.embed_model == "embed-x"
+    assert loaded.embed_provider_id is None
     assert loaded.guide_object_iris == [f"{NS}Product"]
     assert loaded.guide_instance_iris == [f"{NS}i1"]
     assert loaded.guide_relation_iris == []
+
+
+def test_job_store_persists_embed_provider(tmp_path):
+    store = JobStore(str(tmp_path / "j.db"))
+    job = store.create(
+        "a.txt",
+        "llm",
+        "deepseek-chat",
+        provider_id="p1",
+        embed_model="embed-x",
+        embed_provider_id="p2",
+    )
+    loaded = store.get(job.id)
+    assert loaded.provider_id == "p1"
+    assert loaded.embed_provider_id == "p2"
+    assert loaded.embed_model == "embed-x"
+
+
+def test_job_embed_uses_separate_provider(tmp_path):
+    calls: list[dict] = []
+
+    def factory(model, provider_id=None, thinking=False):
+        calls.append({"model": model, "provider_id": provider_id, "thinking": thinking})
+        return FakeLlmGateway(_canned())
+
+    sqlite = str(tmp_path / "j.db")
+    jobs = JobStore(sqlite)
+    js = JobService(jobs, CandidateStore(sqlite), OntologyRepository(), factory, MemoryGraph())
+    job = jobs.create(
+        "a.txt",
+        "llm",
+        "chat-model",
+        provider_id="chat-p",
+        embed_model="embed-m",
+        embed_provider_id="embed-p",
+    )
+    js.run(job.id, "a.txt", "尊享医疗保险".encode("utf-8"))
+    chat = [c for c in calls if c["model"] == "chat-model"]
+    embed = [c for c in calls if c["model"] == "embed-m"]
+    assert chat and chat[0]["provider_id"] == "chat-p"
+    assert embed and embed[0]["provider_id"] == "embed-p"
+    assert embed[0]["thinking"] is False
 
 
 def _canned():
@@ -187,7 +230,8 @@ def test_extractor_exception_marks_job_failed(tmp_path, monkeypatch):
     job = jobs.create("a.txt", "llm", "fake")
     finished = js.run(job.id, "a.txt", "尊享医疗保险".encode("utf-8"))
     assert finished.status == "failed"
-    assert "llm down" in (finished.error or "")
+    assert finished.error == "抽取失败"
+    assert finished.error_kind == "system"
     assert jobs.get(job.id).status == "failed"
 
 
@@ -406,6 +450,9 @@ def test_unknown_accept_mode_uses_distinct_message(tmp_path):
 
 
 def test_job_partial_when_judge_json_malformed(tmp_path):
+    from ontocore.faults import configure_logging
+
+    configure_logging(tmp_path)
     ontology = OntologyRepository(str(tmp_path / "onto"))
     ontology.create_object(OntoObject(iri=f"{NS}Other", label="其它", definition="d"))
     extract_payload = {
@@ -424,9 +471,17 @@ def test_job_partial_when_judge_json_malformed(tmp_path):
     done = service.run(job.id, "a.txt", "标题\n\n正文。".encode("utf-8"))
     assert done.status == "partial"
     assert "判重失败" in (done.error or "")
+    assert done.error_kind == "business"
     rows = cands.list_type_candidates(job.id)
     assert rows
     assert rows[0].payload["label"] == "新品"
+    from pathlib import Path
+
+    logs = list((Path(tmp_path) / "logs").glob("ontocore_*.log"))
+    if logs:
+        text = logs[0].read_text(encoding="utf-8")
+        assert "OC-3103" in text
+        assert "Traceback" in text
 
 
 def test_accept_merge_writes_llm_result(tmp_path):

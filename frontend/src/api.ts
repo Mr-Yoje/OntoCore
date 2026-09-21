@@ -1,11 +1,42 @@
 export class ApiError extends Error {
   status: number;
   detail: string;
-  constructor(status: number, detail: string) {
-    super(detail);
+  kind: "business" | "system";
+  code: string;
+  constructor(status: number, detail: string, kind: "business" | "system" = "business", code = "") {
+    const safe = sanitizePublicError(detail);
+    super(safe);
     this.status = status;
-    this.detail = detail;
+    this.detail = safe;
+    this.kind = kind;
+    this.code = code;
   }
+}
+
+function looksLikeInternalDump(text: string): boolean {
+  const low = text.toLowerCase();
+  return (
+    low.includes("traceback") ||
+    text.includes('File "') ||
+    low.includes("litellm") ||
+    low.includes("exception") ||
+    low.includes("internalservererror") ||
+    text.includes("rel=") ||
+    low.includes("data:image") ||
+    low.includes("<!doctype") ||
+    low.includes("<html") ||
+    text.includes("href=") ||
+    /(?:Error|Exception)\b/.test(text)
+  );
+}
+
+export function sanitizePublicError(text: string): string {
+  const trimmed = text.trim();
+  if (!trimmed) return "操作失败";
+  if (looksLikeInternalDump(trimmed) || trimmed.includes("OC-")) {
+    return "模型调用失败";
+  }
+  return trimmed;
 }
 
 async function parse(response: Response): Promise<unknown> {
@@ -17,11 +48,12 @@ async function parse(response: Response): Promise<unknown> {
     body = text;
   }
   if (!response.ok) {
+    const record = typeof body === "object" && body !== null ? (body as Record<string, unknown>) : null;
     const detail =
-      typeof body === "object" && body !== null && "detail" in body
-        ? String((body as { detail: unknown }).detail)
-        : text || response.statusText;
-    throw new ApiError(response.status, detail);
+      record && "detail" in record ? String(record.detail) : text || response.statusText;
+    const kind = record && record.kind === "system" ? "system" : "business";
+    const code = record && typeof record.code === "string" ? record.code : "";
+    throw new ApiError(response.status, detail, kind, code);
   }
   return body;
 }
@@ -107,10 +139,10 @@ export const api = {
       provider_id: string;
       model: string;
       thinking?: boolean;
-      embed_model?: string;
+      embed_provider_id: string;
+      embed_model: string;
       guide_object_iris: string[];
       guide_relation_iris: string[];
-      guide_instance_iris: string[];
     },
   ) => {
     const form = new FormData();
@@ -118,10 +150,10 @@ export const api = {
     form.append("provider_id", body.provider_id);
     form.append("model", body.model);
     form.append("thinking", body.thinking ? "true" : "false");
-    if (body.embed_model) form.append("embed_model", body.embed_model);
+    form.append("embed_provider_id", body.embed_provider_id);
+    form.append("embed_model", body.embed_model);
     for (const iri of body.guide_object_iris) form.append("guide_object_iris", iri);
     for (const iri of body.guide_relation_iris) form.append("guide_relation_iris", iri);
-    for (const iri of body.guide_instance_iris) form.append("guide_instance_iris", iri);
     return fetch("/api/jobs", { method: "POST", body: form }).then(parse);
   },
   getJob: (id: string) => fetch(`/api/jobs/${encodeURIComponent(id)}`).then(parse),
@@ -148,6 +180,8 @@ export const api = {
   listObjectAttributes: (name: string) =>
     fetch(`/api/objects/${encodeURIComponent(name)}/attributes`).then(parse),
   getSettings: () => fetch("/api/settings").then(parse),
+  listSettingsPrefixes: () =>
+    fetch("/api/settings/prefixes").then(parse) as Promise<{ prefixes: string[] }>,
   putSettings: (body: { providers: ProviderDraft[] }) =>
     fetch("/api/settings", {
       method: "PUT",

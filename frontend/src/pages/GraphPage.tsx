@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../api";
 import { InstanceNetwork } from "../components/InstanceNetwork";
-import { tipText, useTip } from "../tips";
+import { reportError, useTip } from "../tips";
 
 type GraphNode = {
   onto_iri: string;
@@ -38,7 +38,7 @@ export function GraphPage() {
       setNetwork(net);
       setObjects(objs);
     } catch (e) {
-      showTip("error", tipText(e));
+      reportError(showTip, e);
     }
   }, [typeIri, showTip]);
 
@@ -53,7 +53,7 @@ export function GraphPage() {
       setSelected(null);
       await load();
     } catch (e) {
-      showTip("error", tipText(e));
+      reportError(showTip, e);
     }
   }
 
@@ -64,7 +64,7 @@ export function GraphPage() {
       setSelectedRel(null);
       await load();
     } catch (e) {
-      showTip("error", tipText(e));
+      reportError(showTip, e);
     }
   }
 

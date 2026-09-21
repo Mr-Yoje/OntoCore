@@ -1,7 +1,7 @@
 import { FormEvent, ReactNode, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { api } from "../api";
-import { tipText, useTip } from "../tips";
+import { reportError, useTip } from "../tips";
 
 type SimilarRef = { iri: string; label: string };
 
@@ -102,7 +102,7 @@ export function ReviewPage() {
     try {
       await reload();
     } catch (e) {
-      showTip("error", tipText(e));
+      reportError(showTip, e);
     }
   }
 
@@ -126,7 +126,7 @@ export function ReviewPage() {
         target_iri: similar_to[0]?.iri ?? "",
       });
     } catch (e) {
-      showTip("error", tipText(e));
+      reportError(showTip, e);
     }
   }
 
@@ -140,7 +140,7 @@ export function ReviewPage() {
       setImportDlg(null);
       await reload();
     } catch (e) {
-      showTip("error", tipText(e));
+      reportError(showTip, e);
     }
   }
 
@@ -150,7 +150,7 @@ export function ReviewPage() {
       setProjectResult(result);
       showTip("ok", "已投影到图");
     } catch (e) {
-      showTip("error", tipText(e));
+      reportError(showTip, e);
     }
   }
 

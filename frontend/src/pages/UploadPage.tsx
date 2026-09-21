@@ -1,7 +1,7 @@
-import { FormEvent, ReactNode, useEffect, useMemo, useState } from "react";
+import { FormEvent, ReactNode, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, type ProviderDraft } from "../api";
-import { tipText, useTip } from "../tips";
+import { reportError, useTip } from "../tips";
 
 type Job = {
   id: string;
@@ -9,6 +9,7 @@ type Job = {
   model: string;
   status: string;
   error: string | null;
+  error_kind?: string | null;
 };
 
 type OntoObject = {
@@ -20,12 +21,6 @@ type OntoObject = {
 type OntoRelation = {
   iri: string;
   label: string;
-};
-
-type GraphNode = {
-  onto_iri: string;
-  type_iri: string;
-  onto_label: string;
 };
 
 function Dialog({
@@ -107,21 +102,21 @@ export function UploadPage() {
   const [providerId, setProviderId] = useState("");
   const [models, setModels] = useState<string[]>([]);
   const [model, setModel] = useState("");
+  const [embedProviderId, setEmbedProviderId] = useState("");
+  const [embedModels, setEmbedModels] = useState<string[]>([]);
   const [embedModel, setEmbedModel] = useState("");
   const [thinking, setThinking] = useState(false);
   const [job, setJob] = useState<Job | null>(null);
   const [loadingModels, setLoadingModels] = useState(false);
+  const [loadingEmbedModels, setLoadingEmbedModels] = useState(false);
   const [guideOpen, setGuideOpen] = useState(false);
   const [guideSearch, setGuideSearch] = useState("");
   const [objects, setObjects] = useState<OntoObject[]>([]);
   const [relations, setRelations] = useState<OntoRelation[]>([]);
-  const [instances, setInstances] = useState<GraphNode[]>([]);
   const [guide_object_iris, setGuideObjectIris] = useState<string[]>([]);
   const [guideRelationIris, setGuideRelationIris] = useState<string[]>([]);
-  const [guideInstanceIris, setGuideInstanceIris] = useState<string[]>([]);
   const [draftObjects, setDraftObjects] = useState<string[]>([]);
   const [draftRelations, setDraftRelations] = useState<string[]>([]);
-  const [draftInstances, setDraftInstances] = useState<string[]>([]);
 
   useEffect(() => {
     void api
@@ -129,16 +124,18 @@ export function UploadPage() {
       .then((s) => {
         const rows = ((s as { providers?: ProviderDraft[] }).providers ?? []).filter((p) => p.id);
         setProviders(rows);
-        if (rows[0]?.id) setProviderId(rows[0].id);
+        if (rows[0]?.id) {
+          setProviderId(rows[0].id);
+          setEmbedProviderId(rows[0].id);
+        }
       })
-      .catch((e) => showTip("error", tipText(e)));
+      .catch((e) => reportError(showTip, e));
   }, [showTip]);
 
   useEffect(() => {
     if (!providerId) {
       setModels([]);
       setModel("");
-      setEmbedModel("");
       return;
     }
     setLoadingModels(true);
@@ -147,45 +144,55 @@ export function UploadPage() {
       .then((result) => {
         setModels(result.models);
         setModel((current) => (result.models.includes(current) ? current : result.models[0] ?? ""));
-        setEmbedModel((current) => (current && result.models.includes(current) ? current : ""));
       })
       .catch((e) => {
         setModels([]);
         setModel("");
-        setEmbedModel("");
-        showTip("error", tipText(e));
+        reportError(showTip, e);
       })
       .finally(() => setLoadingModels(false));
   }, [providerId, showTip]);
 
-  const selectedGuideCount = guide_object_iris.length + guideRelationIris.length + guideInstanceIris.length;
-  const objectLabel = useMemo(() => new Map(objects.map((o) => [o.iri, o.label])), [objects]);
+  useEffect(() => {
+    if (!embedProviderId) {
+      setEmbedModels([]);
+      setEmbedModel("");
+      return;
+    }
+    setLoadingEmbedModels(true);
+    void api
+      .listSettingsModels({ provider_id: embedProviderId })
+      .then((result) => {
+        setEmbedModels(result.models);
+        setEmbedModel((current) => (result.models.includes(current) ? current : result.models[0] ?? ""));
+      })
+      .catch((e) => {
+        setEmbedModels([]);
+        setEmbedModel("");
+        reportError(showTip, e);
+      })
+      .finally(() => setLoadingEmbedModels(false));
+  }, [embedProviderId, showTip]);
+
+  const selectedGuideCount = guide_object_iris.length + guideRelationIris.length;
   const q = guideSearch.trim().toLowerCase();
   const shownObjects = objectRows(objects).filter((row) => !q || row.label.toLowerCase().includes(q));
   const shownRelations = relations.filter((row) => !q || row.label.toLowerCase().includes(q));
-  const shownInstances = instances.filter((row) => {
-    if (!q) return true;
-    const typeLabel = objectLabel.get(row.type_iri) ?? "";
-    return row.onto_label.toLowerCase().includes(q) || typeLabel.toLowerCase().includes(q);
-  });
 
   async function openGuides() {
     try {
-      const [objs, rels, net] = await Promise.all([
+      const [objs, rels] = await Promise.all([
         api.listObjects() as Promise<OntoObject[]>,
         api.listRelations() as Promise<OntoRelation[]>,
-        api.graphNetwork() as Promise<{ nodes?: GraphNode[] }>,
       ]);
       setObjects(objs);
       setRelations(rels);
-      setInstances(net.nodes ?? []);
       setDraftObjects(guide_object_iris);
       setDraftRelations(guideRelationIris);
-      setDraftInstances(guideInstanceIris);
       setGuideSearch("");
       setGuideOpen(true);
     } catch (e) {
-      showTip("error", tipText(e));
+      reportError(showTip, e);
     }
   }
 
@@ -197,16 +204,21 @@ export function UploadPage() {
         provider_id: providerId,
         model,
         thinking,
-        embed_model: embedModel || undefined,
+        embed_provider_id: embedProviderId,
+        embed_model: embedModel,
         guide_object_iris,
         guide_relation_iris: guideRelationIris,
-        guide_instance_iris: guideInstanceIris,
       })) as Job;
       setJob(created);
-      if (created.error) showTip("error", created.error);
-      else showTip("ok", `作业已创建：${created.status}`);
+      if (created.error) {
+        showTip(created.error_kind === "system" ? "system" : "business", created.error);
+      } else if (created.status === "failed") {
+        showTip("system", "抽取失败");
+      } else {
+        showTip("ok", `作业已创建：${created.status}`);
+      }
     } catch (e) {
-      showTip("error", tipText(e));
+      reportError(showTip, e);
     }
   }
 
@@ -214,7 +226,7 @@ export function UploadPage() {
     <main className="page">
       <header className="page-head">
         <div>
-          <h1>上传</h1>
+          <h1>数据源</h1>
           <p className="kicker">上传文档，抽取对象、属性和关系</p>
         </div>
       </header>
@@ -229,36 +241,38 @@ export function UploadPage() {
               required
             />
           </label>
-          <label>
-            供应商
-            <select value={providerId} onChange={(e) => setProviderId(e.target.value)} required>
-              <option value="">选择供应商</option>
-              {providers.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            具体模型
-            <select
-              value={model}
-              onChange={(e) => setModel(e.target.value)}
-              required
-              disabled={loadingModels || models.length === 0}
-            >
-              {models.length === 0 ? (
-                <option value="">{loadingModels ? "正在拉取模型…" : "暂无模型，请先到设置里测试供应商"}</option>
-              ) : (
-                models.map((name) => (
-                  <option key={name} value={name}>
-                    {name}
+          <div className="field-row">
+            <label>
+              供应商
+              <select value={providerId} onChange={(e) => setProviderId(e.target.value)} required>
+                <option value="">选择供应商</option>
+                {providers.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.label}
                   </option>
-                ))
-              )}
-            </select>
-          </label>
+                ))}
+              </select>
+            </label>
+            <label>
+              抽取模型
+              <select
+                value={model}
+                onChange={(e) => setModel(e.target.value)}
+                required
+                disabled={loadingModels || models.length === 0}
+              >
+                {models.length === 0 ? (
+                  <option value="">{loadingModels ? "正在拉取模型…" : "暂无模型，请先到设置里测试供应商"}</option>
+                ) : (
+                  models.map((name) => (
+                    <option key={name} value={name}>
+                      {name}
+                    </option>
+                  ))
+                )}
+              </select>
+            </label>
+          </div>
           <label className="inline">
             <input
               type="checkbox"
@@ -267,17 +281,44 @@ export function UploadPage() {
             />
             开启 thinking
           </label>
-          <label>
-            嵌入模型
-            <select value={embedModel} onChange={(e) => setEmbedModel(e.target.value)}>
-              <option value="">不使用嵌入</option>
-              {models.map((name) => (
-                <option key={name} value={name}>
-                  {name}
-                </option>
-              ))}
-            </select>
-          </label>
+          <div className="field-row">
+            <label>
+              嵌入供应商
+              <select
+                value={embedProviderId}
+                onChange={(e) => setEmbedProviderId(e.target.value)}
+                required
+              >
+                <option value="">选择供应商</option>
+                {providers.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              嵌入模型
+              <select
+                value={embedModel}
+                onChange={(e) => setEmbedModel(e.target.value)}
+                required
+                disabled={loadingEmbedModels || embedModels.length === 0}
+              >
+                {embedModels.length === 0 ? (
+                  <option value="">
+                    {loadingEmbedModels ? "正在拉取模型…" : "请选择嵌入模型"}
+                  </option>
+                ) : (
+                  embedModels.map((name) => (
+                    <option key={name} value={name}>
+                      {name}
+                    </option>
+                  ))
+                )}
+              </select>
+            </label>
+          </div>
           <div className="actions">
             <button type="button" className="btn-ghost" onClick={() => void openGuides()}>
               选择引导
@@ -336,21 +377,6 @@ export function UploadPage() {
           ))}
           {shownRelations.length === 0 ? <p className="muted">没有可引导的关系</p> : null}
         </div>
-        <p className="guide-section-title">实例</p>
-        <div className="guide-pick">
-          {shownInstances.map((row) => (
-            <label key={row.onto_iri} className="guide-option">
-              <input
-                type="checkbox"
-                checked={draftInstances.includes(row.onto_iri)}
-                onChange={() => setDraftInstances(toggle(draftInstances, row.onto_iri))}
-              />
-              {row.onto_label}
-              <span className="muted">{objectLabel.get(row.type_iri) ?? "未指定对象"}</span>
-            </label>
-          ))}
-          {shownInstances.length === 0 ? <p className="muted">没有可引导的实例</p> : null}
-        </div>
         <div className="actions">
           <button
             type="button"
@@ -358,7 +384,6 @@ export function UploadPage() {
             onClick={() => {
               setDraftObjects([]);
               setDraftRelations([]);
-              setDraftInstances([]);
             }}
           >
             清空
@@ -368,7 +393,6 @@ export function UploadPage() {
             onClick={() => {
               setGuideObjectIris(draftObjects);
               setGuideRelationIris(draftRelations);
-              setGuideInstanceIris(draftInstances);
               setGuideOpen(false);
             }}
           >

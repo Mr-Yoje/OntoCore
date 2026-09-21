@@ -14,6 +14,14 @@ from typing import Any
 from cryptography.fernet import Fernet, InvalidToken
 
 
+def list_litellm_prefixes() -> list[str]:
+    import litellm
+
+    mapping = getattr(litellm, "models_by_provider", None) or {}
+    names = {str(name).strip() for name in mapping if str(name).strip()}
+    return sorted(names)
+
+
 def resolve_litellm_model(prefix: str, model: str) -> str:
     name = (model or "").strip()
     if not name:

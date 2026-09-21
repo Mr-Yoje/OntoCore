@@ -66,12 +66,27 @@ describe("copy", () => {
     expect(t.includes("deleteGraphRel")).toBe(true);
   });
 
+  it("settings prefix dropdown uses LiteLLM prefixes from the api", () => {
+    const page = readFileSync("src/pages/SettingsPage.tsx", "utf8");
+    const api = readFileSync("src/api.ts", "utf8");
+    expect(api.includes("/api/settings/prefixes")).toBe(true);
+    expect(api.includes("listSettingsPrefixes")).toBe(true);
+    expect(page.includes("listSettingsPrefixes")).toBe(true);
+    expect(page.includes('value="deepseek"')).toBe(false);
+    expect(page.includes('value="anthropic"')).toBe(false);
+  });
+
   it("settings page can test model connectivity", () => {
     const t = readFileSync("src/pages/SettingsPage.tsx", "utf8") + readFileSync("src/api.ts", "utf8");
     expect(t.includes("testSettings")).toBe(true);
     expect(t.includes("listSettingsModels")).toBe(true);
-    expect(t.includes("测试联通")).toBe(true);
+    expect(t.includes("测试联通")).toBe(false);
+    expect(t.includes('{testing ? "测试中…" : "测试"}')).toBe(true);
     expect(t.includes("拉取模型")).toBe(true);
+    expect(t.includes("去掉此模型供应商")).toBe(false);
+    expect(t.includes(">删除<")).toBe(true);
+    expect(t.includes(">保存模型供应商</button>")).toBe(false);
+    expect(t.includes(">保存</button>")).toBe(true);
     expect(t.includes("模型供应商")).toBe(true);
     expect(t.includes("settings-stack")).toBe(true);
     expect(t.includes("vendor-card")).toBe(true);
@@ -95,9 +110,27 @@ describe("copy", () => {
     const gridChunk = page.slice(gridAt, dialogAt);
     expect(gridChunk.includes("测试联通")).toBe(false);
     expect(gridChunk.includes("拉取模型")).toBe(false);
+    expect(gridChunk.includes(">删除<")).toBe(false);
+    expect(gridChunk.includes(">保存</button>")).toBe(false);
     const dialogChunk = page.slice(dialogAt);
-    expect(dialogChunk.includes("测试联通")).toBe(true);
+    expect(dialogChunk.includes("测试联通")).toBe(false);
+    expect(dialogChunk.includes('{testing ? "测试中…" : "测试"}')).toBe(true);
     expect(dialogChunk.includes("拉取模型")).toBe(true);
+    expect(dialogChunk.includes(">删除<")).toBe(true);
+    expect(dialogChunk.includes(">保存</button>")).toBe(true);
+  });
+
+  it("settings save uses popup tips for empty required fields", () => {
+    const page = readFileSync("src/pages/SettingsPage.tsx", "utf8");
+    const saveAt = page.indexOf("async function saveDialog");
+    const persistAt = page.indexOf("await persist(next)", saveAt);
+    expect(saveAt).toBeGreaterThan(-1);
+    expect(persistAt).toBeGreaterThan(saveAt);
+    const save = page.slice(saveAt, persistAt);
+    expect(save.includes("providerSaveTip")).toBe(true);
+    expect(save.includes('showTip("error"')).toBe(true);
+    expect(save.includes("field-hint")).toBe(false);
+    expect(save.includes("field-error")).toBe(false);
   });
 
   it("settings page does not keep vendor keys in the client", () => {
@@ -113,10 +146,30 @@ describe("copy", () => {
   it("upload page picks vendor and model", () => {
     const t = readFileSync("src/pages/UploadPage.tsx", "utf8");
     expect(t.includes("provider_id")).toBe(true);
-    expect(t.includes("具体模型")).toBe(true);
+    expect(t.includes("抽取模型")).toBe(true);
+    expect(t.includes("具体模型")).toBe(false);
     expect(t.includes("供应商")).toBe(true);
     expect(t.includes("listSettingsModels")).toBe(true);
     expect(t.includes("抽取器")).toBe(false);
+  });
+
+  it("upload page selects embed vendor independently", () => {
+    const page = readFileSync("src/pages/UploadPage.tsx", "utf8");
+    const api = readFileSync("src/api.ts", "utf8");
+    expect(page.includes("embed_provider_id")).toBe(true);
+    expect(page.includes("嵌入供应商")).toBe(true);
+    expect(api.includes("embed_provider_id")).toBe(true);
+  });
+
+  it("sidebar labels the source page 数据源", () => {
+    const app = readFileSync("src/App.tsx", "utf8");
+    const page = readFileSync("src/pages/UploadPage.tsx", "utf8");
+    expect(app.includes('label: "数据源"')).toBe(true);
+    expect(app.includes('to: "/upload"')).toBe(true);
+    expect(app.includes('label: "上传"')).toBe(false);
+    expect(app.includes("M12 16V5m0 0 4 4M12 5 8 9M5 19h14")).toBe(false);
+    expect(app.includes("M7 6h11v13H7V6Zm-2 2v11a2 2 0 0 0 2 2h9M10 10h5M10 13.5h5")).toBe(true);
+    expect(page.includes("<h1>数据源</h1>") || page.includes(">数据源</h1>")).toBe(true);
   });
 
   it("upload page selects guides not extractors", () => {
@@ -127,7 +180,10 @@ describe("copy", () => {
     expect(t.includes("选择引导")).toBe(true);
     expect(t.includes("guide_object_iris")).toBe(true);
     expect(t.includes("embed_model")).toBe(true);
-    expect(t.includes("不使用嵌入")).toBe(true);
+    expect(t.includes("请选择嵌入模型")).toBe(true);
+    expect(t.includes("不使用嵌入")).toBe(false);
+    expect(t.includes("没有可引导的实例")).toBe(false);
+    expect(t.includes("guide_instance_iris")).toBe(false);
   });
 
   it("review page import modes when similar", () => {
@@ -143,9 +199,25 @@ describe("copy", () => {
   it("shows flash messages as popup tips", () => {
     const app = readFileSync("src/App.tsx", "utf8");
     const tips = readFileSync("src/tips.tsx", "utf8");
+    const css = readFileSync("src/index.css", "utf8");
+    const api = readFileSync("src/api.ts", "utf8");
     expect(app.includes("TipHost")).toBe(true);
     expect(tips.includes("tip-stack")).toBe(true);
     expect(tips.includes("showTip")).toBe(true);
+    expect(tips.includes("tip-business")).toBe(true);
+    expect(tips.includes("tip-system")).toBe(true);
+    expect(css.includes("tip-business")).toBe(true);
+    expect(css.includes("tip-system")).toBe(true);
+    expect(css.includes("#98a2b3")).toBe(true);
+    expect(css.includes("#161b26")).toBe(true);
+    expect(api.includes("kind")).toBe(true);
+    expect(api.includes("code")).toBe(true);
+    expect(tips.includes("reportError")).toBe(true);
+    expect(tips.includes("OC-")).toBe(false);
+    expect(tips.includes("Traceback")).toBe(false);
+    const upload = readFileSync("src/pages/UploadPage.tsx", "utf8");
+    expect(upload.includes("reportError")).toBe(true);
+    expect(upload.includes("error_kind")).toBe(true);
     const pages = [
       "src/pages/OntologyPage.tsx",
       "src/pages/SettingsPage.tsx",
@@ -171,5 +243,21 @@ describe("copy", () => {
     expect(tn.includes("buildNetworkGraph")).toBe(true);
     expect(tn.includes("forceAtlas2")).toBe(true);
     expect(tn.includes("animatedZoom") || tn.includes("ZoomIn") || tn.includes("放大")).toBe(true);
+  });
+});
+
+describe("public error copy", () => {
+  it("never shows LiteLLM, stacks, or HTML in tips", async () => {
+    const { tipText } = await import("./tips");
+    const { ApiError } = await import("./api");
+    const dump =
+      'litellm.InternalServerError: InternalServerError: OpenAIEx rel="icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0ia';
+    const text = tipText(new ApiError(400, dump, "business", "OC-5001"));
+    expect(text).toBe("模型调用失败");
+    expect(text.includes("litellm")).toBe(false);
+    expect(text.includes("rel=")).toBe(false);
+    expect(text.includes("data:image")).toBe(false);
+    expect(text.includes("OC-")).toBe(false);
+    expect(tipText(new ApiError(400, "请填写 Base URL"))).toBe("请填写 Base URL");
   });
 });
