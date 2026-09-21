@@ -84,6 +84,26 @@ class LiteLlmGateway:
             raise StructuredOutputError("empty LLM response")
         return content
 
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        import litellm
+
+        try:
+            response = litellm.embedding(
+                model=self._model,
+                input=texts,
+                api_key=self._api_key or None,
+                api_base=self._api_base or None,
+            )
+        except Exception as exc:
+            raise StructuredOutputError(str(exc)) from exc
+        vectors: list[list[float]] = []
+        for item in response.data:
+            if isinstance(item, dict):
+                vectors.append(item["embedding"])
+            else:
+                vectors.append(item.embedding)
+        return vectors
+
     def complete_structured(self, schema: dict, messages: list[dict]) -> dict:
         content = self._call(
             messages=messages,

@@ -69,3 +69,27 @@ def test_lite_llm_empty_content(monkeypatch):
     gw = LiteLlmGateway("openai/gpt-4o-mini")
     with pytest.raises(StructuredOutputError):
         gw.complete_structured({}, [])
+
+
+def test_lite_llm_embed_parses_data_embeddings(monkeypatch):
+    captured = {}
+
+    def embedding(**kwargs):
+        captured["kwargs"] = kwargs
+        return SimpleNamespace(data=[{"embedding": [0.1, 0.2]}])
+
+    monkeypatch.setitem(
+        __import__("sys").modules,
+        "litellm",
+        SimpleNamespace(completion=lambda **k: None, embedding=embedding),
+    )
+    gw = LiteLlmGateway(
+        "openai/text-embedding-3-small",
+        api_key="sk-embed",
+        api_base="https://api.example.com/v1",
+    )
+    assert gw.embed(["保险产品"]) == [[0.1, 0.2]]
+    assert captured["kwargs"]["model"] == "openai/text-embedding-3-small"
+    assert captured["kwargs"]["input"] == ["保险产品"]
+    assert captured["kwargs"]["api_key"] == "sk-embed"
+    assert captured["kwargs"]["api_base"] == "https://api.example.com/v1"

@@ -3,6 +3,7 @@ from ontocore.constants import NS
 from ontocore.errors import ConflictError, GraphUnavailable
 from ontocore.extract.llm import FakeLlmGateway
 from ontocore.graph.memory import MemoryGraphRepository
+from ontocore.graph.memory import MemoryGraphRepository as MemoryGraph
 from ontocore.graph.ports import GraphNode
 from ontocore.graph.projector import Projector
 from ontocore.jobs.service import JobService
@@ -58,7 +59,7 @@ def test_accept_object_then_project(tmp_path):
     jobs = JobStore(sqlite)
     def llm_factory(model):
         return FakeLlmGateway(_canned())
-    js = JobService(jobs, candidates, ontology, llm_factory)
+    js = JobService(jobs, candidates, ontology, llm_factory, MemoryGraph())
     job = jobs.create("a.txt", "llm", "fake")
     js.run(job.id, "a.txt", "尊享医疗保险".encode("utf-8"))
     review = ReviewService(candidates, ontology, projector, jobs, graph)
@@ -83,7 +84,7 @@ def test_graph_unavailable_keeps_accepted_types(tmp_path):
     projector = Projector(graph)
     candidates = CandidateStore(sqlite)
     jobs = JobStore(sqlite)
-    js = JobService(jobs, candidates, ontology, lambda model: FakeLlmGateway(_canned()))
+    js = JobService(jobs, candidates, ontology, lambda model: FakeLlmGateway(_canned()), MemoryGraph())
     job = jobs.create("a.txt", "llm", "fake")
     js.run(job.id, "a.txt", "尊享医疗保险".encode("utf-8"))
     review = ReviewService(candidates, ontology, projector, jobs, graph)
@@ -106,7 +107,7 @@ def test_delete_object_conflicts_when_instances_exist(tmp_path):
     projector = Projector(graph)
     candidates = CandidateStore(sqlite)
     jobs = JobStore(sqlite)
-    js = JobService(jobs, candidates, ontology, lambda model: FakeLlmGateway(_canned()))
+    js = JobService(jobs, candidates, ontology, lambda model: FakeLlmGateway(_canned()), MemoryGraph())
     job = jobs.create("a.txt", "llm", "fake")
     js.run(job.id, "a.txt", "尊享医疗保险".encode("utf-8"))
     review = ReviewService(candidates, ontology, projector, jobs, graph)
@@ -122,7 +123,7 @@ def test_delete_object_conflicts_when_instances_exist(tmp_path):
 
 
 class _AllBlocksFailExtractor:
-    def extract(self, doc, snapshot, llm):
+    def extract(self, doc, snapshot, llm, **kwargs):
         return ExtractionResult(
             object_candidates=[],
             attribute_candidates=[],
@@ -145,6 +146,7 @@ def test_all_block_failures_without_candidates_is_failed(tmp_path, monkeypatch):
         CandidateStore(sqlite),
         OntologyRepository(),
         lambda model: FakeLlmGateway({}),
+        MemoryGraph(),
     )
     job = jobs.create("a.txt", "llm", "fake")
     finished = js.run(job.id, "a.txt", "尊享医疗保险".encode("utf-8"))
@@ -152,7 +154,7 @@ def test_all_block_failures_without_candidates_is_failed(tmp_path, monkeypatch):
 
 
 class _BoomExtractor:
-    def extract(self, doc, snapshot, llm):
+    def extract(self, doc, snapshot, llm, **kwargs):
         raise RuntimeError("llm down")
 
 
@@ -168,6 +170,7 @@ def test_extractor_exception_marks_job_failed(tmp_path, monkeypatch):
         CandidateStore(sqlite),
         OntologyRepository(),
         lambda model: FakeLlmGateway({}),
+        MemoryGraph(),
     )
     job = jobs.create("a.txt", "llm", "fake")
     finished = js.run(job.id, "a.txt", "尊享医疗保险".encode("utf-8"))
@@ -194,6 +197,7 @@ def test_invalid_drafts_can_leave_job_partial(tmp_path):
         CandidateStore(sqlite),
         OntologyRepository(),
         lambda model: FakeLlmGateway(canned),
+        MemoryGraph(),
     )
     job = jobs.create("a.txt", "llm", "fake")
     finished = js.run(job.id, "a.txt", "尊享医疗保险".encode("utf-8"))
@@ -249,7 +253,7 @@ def test_successful_rel_not_skipped_when_longer_predicate_skipped(tmp_path):
             },
         ],
     }
-    js = JobService(jobs, candidates, ontology, lambda model: FakeLlmGateway(canned))
+    js = JobService(jobs, candidates, ontology, lambda model: FakeLlmGateway(canned), MemoryGraph())
     job = jobs.create("a.txt", "llm", "fake")
     js.run(job.id, "a.txt", "尊享医疗保险".encode("utf-8"))
     review = ReviewService(candidates, ontology, projector, jobs, graph)
@@ -263,3 +267,36 @@ def test_successful_rel_not_skipped_when_longer_predicate_skipped(tmp_path):
     }
     assert by_pred[ok_pred] == "projected"
     assert by_pred[skip_pred] == "skipped"
+
+
+def test_job_extract_then_partial_on_judge_failure(tmp_path, monkeypatch):
+    from ontocore.candidates.store import CandidateStore
+    from ontocore.extract.llm import FakeLlmGateway
+    from ontocore.jobs.service import JobService
+    from ontocore.jobs.store import JobStore
+    from ontocore.ontology.repository import OntologyRepository
+    from ontocore.graph.memory import MemoryGraphRepository as MemoryGraph
+    from ontocore.constants import NS
+    from ontocore.models import OntoObject
+
+    ontology = OntologyRepository(str(tmp_path / "onto"))
+    ontology.create_object(OntoObject(iri=f"{NS}Other", label="其它", definition="d"))
+    extract_payload = {
+        "object_candidates": [{
+            "iri": f"{NS}New", "label": "新品", "definition": "d",
+            "parent_iri": None, "evidence": "e", "block_id": "b0", "confidence": 0.5,
+        }],
+        "attribute_candidates": [], "relation_candidates": [],
+        "instance_suggestions": [], "instance_rel_suggestions": [],
+    }
+    gw = FakeLlmGateway([extract_payload, {"__error__": True}])
+    jobs = JobStore(str(tmp_path / "j.db"))
+    cands = CandidateStore(str(tmp_path / "j.db"))
+    service = JobService(jobs, cands, ontology, lambda *a, **k: gw, MemoryGraph())
+    job = jobs.create("a.txt", "llm", "fake", guide_object_iris=[])
+    done = service.run(job.id, "a.txt", "标题\n\n正文。".encode("utf-8"))
+    assert done.status == "partial"
+    assert "判重" in (done.error or "")
+    rows = cands.list_type_candidates(job.id)
+    assert rows[0].payload["label"] == "新品"
+    assert rows[0].payload.get("similar_to") in ([], None)
