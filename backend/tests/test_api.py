@@ -339,13 +339,13 @@ def test_create_app_default_data_dir_is_cwd_data(tmp_path, monkeypatch):
     assert Path(app.state.data_dir).resolve() == (tmp_path / "data").resolve()
 
 
-def test_post_jobs_extractor_error_is_not_500(monkeypatch):
+def test_post_jobs_extractor_error_is_not_500(tmp_path, monkeypatch):
     class Boom:
         def extract(self, *args, **kwargs):
             raise RuntimeError("llm down")
 
     monkeypatch.setattr("ontocore.jobs.service.get_extractor", lambda name: Boom())
-    client = TestClient(create_app())
+    client = TestClient(create_app(data_dir=tmp_path))
     saved = client.put(
         "/api/settings",
         json={
@@ -355,6 +355,7 @@ def test_post_jobs_extractor_error_is_not_500(monkeypatch):
                     "prefix": "openai",
                     "api_base": "",
                     "api_key": "sk-test",
+                    "model": "fake",
                 }
             ]
         },
@@ -362,9 +363,78 @@ def test_post_jobs_extractor_error_is_not_500(monkeypatch):
     r = client.post(
         "/api/jobs",
         files={"file": ("a.txt", "标题\n\n正文。".encode("utf-8"), "text/plain")},
-        data={"extractor": "llm", "provider_id": saved["id"], "model": "fake"},
+        data={"provider_id": saved["id"], "model": "fake"},
     )
     assert r.status_code == 200
     body = r.json()
     assert body["status"] == "failed"
     assert "llm down" in body["error"]
+
+
+def test_create_job_requires_provider_and_stores_guides(tmp_path, monkeypatch):
+    from ontocore.jobs.service import JobService
+
+    monkeypatch.setattr(
+        JobService,
+        "run",
+        lambda self, job_id, filename, data: self._jobs.set_status(job_id, "completed"),
+    )
+    client = TestClient(create_app(data_dir=tmp_path))
+    client.put(
+        "/api/settings",
+        json={
+            "providers": [
+                {
+                    "label": "DeepSeek",
+                    "prefix": "deepseek",
+                    "api_base": "https://api.deepseek.com",
+                    "api_key": "sk",
+                    "model": "deepseek-chat",
+                }
+            ]
+        },
+    )
+    pid = client.get("/api/settings").json()["providers"][0]["id"]
+    missing = client.post("/api/jobs", files={"file": ("a.txt", b"hi", "text/plain")})
+    assert missing.status_code == 400
+    r = client.post(
+        "/api/jobs",
+        files={"file": ("a.txt", b"hi", "text/plain")},
+        data={
+            "provider_id": pid,
+            "model": "deepseek-chat",
+            "guide_object_iris": "https://ontocore.local/ns/working#Product",
+        },
+    )
+    assert r.status_code == 200
+    assert r.json()["extractor"] == "llm"
+    assert "https://ontocore.local/ns/working#Product" in r.json()["guide_object_iris"]
+
+
+def test_accept_type_candidate_forwards_json_mode(tmp_path, monkeypatch):
+    from ontocore.review.service import ReviewService
+
+    captured: dict = {}
+
+    def fake_accept(self, candidate_id, *, mode="create", target_iri=None):
+        captured["id"] = candidate_id
+        captured["mode"] = mode
+        captured["target_iri"] = target_iri
+        return {"id": candidate_id, "status": "accepted"}
+
+    monkeypatch.setattr(ReviewService, "accept_type", fake_accept)
+    client = TestClient(create_app(data_dir=tmp_path))
+    empty = client.post("/api/type-candidates/cand-1/accept")
+    assert empty.status_code == 200
+    assert captured["mode"] == "create"
+    assert captured["target_iri"] is None
+    body = client.post(
+        "/api/type-candidates/cand-1/accept",
+        json={
+            "mode": "overwrite",
+            "target_iri": "https://ontocore.local/ns/working#Product",
+        },
+    )
+    assert body.status_code == 200
+    assert captured["mode"] == "overwrite"
+    assert captured["target_iri"] == "https://ontocore.local/ns/working#Product"

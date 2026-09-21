@@ -104,6 +104,11 @@ class ProbeBody(BaseModel):
     thinking: bool = False
 
 
+class AcceptBody(BaseModel):
+    mode: str = "create"
+    target_iri: str | None = None
+
+
 def _iri(local_name: str) -> str:
     return f"{NS}{local_name}"
 
@@ -390,31 +395,35 @@ def create_app(
     @app.post("/api/jobs", summary="上传并抽取")
     async def create_job(
         file: UploadFile = File(...),
-        extractor: str = Form("hybrid"),
+        extractor: str | None = Form(None),
         provider_id: str | None = Form(None),
         model: str | None = Form(None),
         thinking: bool = Form(False),
+        embed_model: str | None = Form(None),
+        guide_object_iris: list[str] = Form(default=[]),
+        guide_relation_iris: list[str] = Form(default=[]),
+        guide_instance_iris: list[str] = Form(default=[]),
     ):
-        chosen_extractor = extractor.strip() or "hybrid"
+        del extractor
         chosen_model = (model or "").strip()
-        if chosen_extractor != "rules_only":
-            if not provider_id:
-                return JSONResponse(status_code=400, content={"detail": "请选择供应商"})
-            if not chosen_model:
-                return JSONResponse(status_code=400, content={"detail": "请选择具体模型"})
-            if find_provider(load_settings(root), provider_id) is None:
-                return JSONResponse(status_code=400, content={"detail": "未找到所选供应商，请先在设置中添加"})
-        else:
-            chosen_model = chosen_model or "rules_only"
-            provider_id = None
+        if not provider_id:
+            return JSONResponse(status_code=400, content={"detail": "请选择供应商"})
+        if not chosen_model:
+            return JSONResponse(status_code=400, content={"detail": "请选择具体模型"})
+        if find_provider(load_settings(root), provider_id) is None:
+            return JSONResponse(status_code=400, content={"detail": "未找到所选供应商，请先在设置中添加"})
         data = await file.read()
         filename = file.filename or "upload.bin"
         job = jobs.create(
             filename,
-            chosen_extractor,
+            "llm",
             chosen_model,
             provider_id=provider_id,
             thinking=thinking,
+            embed_model=(embed_model or "").strip() or None,
+            guide_object_iris=guide_object_iris,
+            guide_relation_iris=guide_relation_iris,
+            guide_instance_iris=guide_instance_iris,
         )
         job = job_service.run(job.id, filename, data)
         return _dump(job)
@@ -428,8 +437,16 @@ def create_app(
         return _dump(candidates.list_type_candidates(job_id))
 
     @app.post("/api/type-candidates/{candidate_id}/accept", summary="接受对象候选")
-    def accept_type_candidate(candidate_id: str):
-        return _dump(review.accept_type(candidate_id))
+    async def accept_type_candidate(candidate_id: str, request: Request):
+        raw = (await request.body()).strip()
+        payload = AcceptBody() if not raw else AcceptBody.model_validate_json(raw)
+        return _dump(
+            review.accept_type(
+                candidate_id,
+                mode=payload.mode,
+                target_iri=payload.target_iri,
+            )
+        )
 
     @app.post("/api/type-candidates/{candidate_id}/reject", summary="拒绝对象候选")
     def reject_type_candidate(candidate_id: str):
