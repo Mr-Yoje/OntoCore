@@ -12,6 +12,27 @@ from ontocore.ontology.repository import OntologyRepository
 from ontocore.review.service import ReviewService
 
 
+def test_job_store_persists_guides_and_embed(tmp_path):
+    store = JobStore(str(tmp_path / "j.db"))
+    job = store.create(
+        "a.txt",
+        "llm",
+        "deepseek-chat",
+        provider_id="p1",
+        thinking=False,
+        embed_model="embed-x",
+        guide_object_iris=[f"{NS}Product"],
+        guide_relation_iris=[],
+        guide_instance_iris=[f"{NS}i1"],
+    )
+    loaded = store.get(job.id)
+    assert loaded.extractor == "llm"
+    assert loaded.embed_model == "embed-x"
+    assert loaded.guide_object_iris == [f"{NS}Product"]
+    assert loaded.guide_instance_iris == [f"{NS}i1"]
+    assert loaded.guide_relation_iris == []
+
+
 def _canned():
     return {
         "object_candidates": [{

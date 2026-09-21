@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from ontocore.models import JobStatus
 
@@ -28,6 +29,10 @@ class Job:
     error: str | None
     provider_id: str | None = None
     thinking: bool = False
+    embed_model: str | None = None
+    guide_object_iris: list[str] = field(default_factory=list)
+    guide_relation_iris: list[str] = field(default_factory=list)
+    guide_instance_iris: list[str] = field(default_factory=list)
 
 
 class JobStore:
@@ -40,6 +45,20 @@ class JobStore:
                 conn.execute("ALTER TABLE jobs ADD COLUMN provider_id TEXT")
             if "thinking" not in cols:
                 conn.execute("ALTER TABLE jobs ADD COLUMN thinking INTEGER NOT NULL DEFAULT 0")
+            if "embed_model" not in cols:
+                conn.execute("ALTER TABLE jobs ADD COLUMN embed_model TEXT")
+            if "guide_object_iris" not in cols:
+                conn.execute(
+                    "ALTER TABLE jobs ADD COLUMN guide_object_iris TEXT NOT NULL DEFAULT '[]'",
+                )
+            if "guide_relation_iris" not in cols:
+                conn.execute(
+                    "ALTER TABLE jobs ADD COLUMN guide_relation_iris TEXT NOT NULL DEFAULT '[]'",
+                )
+            if "guide_instance_iris" not in cols:
+                conn.execute(
+                    "ALTER TABLE jobs ADD COLUMN guide_instance_iris TEXT NOT NULL DEFAULT '[]'",
+                )
 
     def create(
         self,
@@ -49,6 +68,10 @@ class JobStore:
         *,
         provider_id: str | None = None,
         thinking: bool = False,
+        embed_model: str | None = None,
+        guide_object_iris: list[str] | None = None,
+        guide_relation_iris: list[str] | None = None,
+        guide_instance_iris: list[str] | None = None,
     ) -> Job:
         job = Job(
             id=str(uuid.uuid4()),
@@ -59,11 +82,16 @@ class JobStore:
             error=None,
             provider_id=provider_id,
             thinking=thinking,
+            embed_model=embed_model or None,
+            guide_object_iris=guide_object_iris or [],
+            guide_relation_iris=guide_relation_iris or [],
+            guide_instance_iris=guide_instance_iris or [],
         )
         with sqlite3.connect(self._path) as conn:
             conn.execute(
-                "INSERT INTO jobs (id, filename, extractor, model, status, error, provider_id, thinking) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO jobs (id, filename, extractor, model, status, error, provider_id, thinking, "
+                "embed_model, guide_object_iris, guide_relation_iris, guide_instance_iris) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     job.id,
                     job.filename,
@@ -73,6 +101,10 @@ class JobStore:
                     job.error,
                     job.provider_id,
                     1 if job.thinking else 0,
+                    job.embed_model,
+                    json.dumps(job.guide_object_iris),
+                    json.dumps(job.guide_relation_iris),
+                    json.dumps(job.guide_instance_iris),
                 ),
             )
         return job
@@ -81,7 +113,8 @@ class JobStore:
         with sqlite3.connect(self._path) as conn:
             conn.row_factory = sqlite3.Row
             cur = conn.execute(
-                "SELECT id, filename, extractor, model, status, error, provider_id, thinking "
+                "SELECT id, filename, extractor, model, status, error, provider_id, thinking, "
+                "embed_model, guide_object_iris, guide_relation_iris, guide_instance_iris "
                 "FROM jobs WHERE id = ?",
                 (job_id,),
             )
@@ -103,10 +136,19 @@ class JobStore:
         return self.get(job_id)
 
 
+def _load_iris(row: sqlite3.Row, keys: list[str], column: str) -> list[str]:
+    if column not in keys or row[column] is None:
+        return []
+    return json.loads(row[column])
+
+
 def _row_to_job(row: sqlite3.Row) -> Job:
     keys = row.keys()
     thinking = bool(row["thinking"]) if "thinking" in keys and row["thinking"] is not None else False
     provider_id = row["provider_id"] if "provider_id" in keys else None
+    embed_model = row["embed_model"] if "embed_model" in keys else None
+    if embed_model == "":
+        embed_model = None
     return Job(
         id=row["id"],
         filename=row["filename"],
@@ -116,4 +158,8 @@ def _row_to_job(row: sqlite3.Row) -> Job:
         error=row["error"],
         provider_id=provider_id,
         thinking=thinking,
+        embed_model=embed_model,
+        guide_object_iris=_load_iris(row, keys, "guide_object_iris"),
+        guide_relation_iris=_load_iris(row, keys, "guide_relation_iris"),
+        guide_instance_iris=_load_iris(row, keys, "guide_instance_iris"),
     )
