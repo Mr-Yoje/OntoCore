@@ -103,21 +103,36 @@ export const api = {
   ontologyNetwork: () => fetch("/api/ontology/network").then(parse),
   createJob: (
     file: File,
-    body: { extractor: string; provider_id?: string; model?: string; thinking?: boolean },
+    body: {
+      provider_id: string;
+      model: string;
+      thinking?: boolean;
+      embed_model?: string;
+      guide_object_iris: string[];
+      guide_relation_iris: string[];
+      guide_instance_iris: string[];
+    },
   ) => {
     const form = new FormData();
     form.append("file", file);
-    form.append("extractor", body.extractor);
-    if (body.provider_id) form.append("provider_id", body.provider_id);
-    if (body.model) form.append("model", body.model);
+    form.append("provider_id", body.provider_id);
+    form.append("model", body.model);
     form.append("thinking", body.thinking ? "true" : "false");
+    if (body.embed_model) form.append("embed_model", body.embed_model);
+    for (const iri of body.guide_object_iris) form.append("guide_object_iris", iri);
+    for (const iri of body.guide_relation_iris) form.append("guide_relation_iris", iri);
+    for (const iri of body.guide_instance_iris) form.append("guide_instance_iris", iri);
     return fetch("/api/jobs", { method: "POST", body: form }).then(parse);
   },
   getJob: (id: string) => fetch(`/api/jobs/${encodeURIComponent(id)}`).then(parse),
   typeCandidates: (jobId: string) =>
     fetch(`/api/jobs/${encodeURIComponent(jobId)}/type-candidates`).then(parse),
-  acceptType: (id: string) =>
-    fetch(`/api/type-candidates/${encodeURIComponent(id)}/accept`, { method: "POST" }).then(parse),
+  acceptType: (id: string, body?: { mode: string; target_iri?: string | null }) =>
+    fetch(`/api/type-candidates/${encodeURIComponent(id)}/accept`, {
+      method: "POST",
+      headers: body ? jsonHeaders() : undefined,
+      body: body ? JSON.stringify(body) : undefined,
+    }).then(parse),
   rejectType: (id: string) =>
     fetch(`/api/type-candidates/${encodeURIComponent(id)}/reject`, { method: "POST" }).then(parse),
   projectJob: (jobId: string) =>

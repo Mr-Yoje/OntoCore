@@ -116,6 +116,28 @@ describe("copy", () => {
     expect(t.includes("具体模型")).toBe(true);
     expect(t.includes("供应商")).toBe(true);
     expect(t.includes("listSettingsModels")).toBe(true);
+    expect(t.includes("抽取器")).toBe(false);
+  });
+
+  it("upload page selects guides not extractors", () => {
+    const t = readFileSync("src/pages/UploadPage.tsx", "utf8");
+    expect(t.includes("hybrid")).toBe(false);
+    expect(t.includes("rules_only")).toBe(false);
+    expect(t.includes("llm_only")).toBe(false);
+    expect(t.includes("选择引导")).toBe(true);
+    expect(t.includes("guide_object_iris")).toBe(true);
+    expect(t.includes("embed_model")).toBe(true);
+    expect(t.includes("不使用嵌入")).toBe(true);
+  });
+
+  it("review page import modes when similar", () => {
+    const t = readFileSync("src/pages/ReviewPage.tsx", "utf8");
+    expect(t.includes("similar_to")).toBe(true);
+    expect(t.includes("覆盖")).toBe(true);
+    expect(t.includes("新增")).toBe(true);
+    expect(t.includes("融合")).toBe(true);
+    expect(t.includes("acceptType")).toBe(true);
+    expect(t.includes("target_iri")).toBe(true);
   });
 
   it("shows flash messages as popup tips", () => {

@@ -20,7 +20,7 @@ python -m pytest -v
 
 - `NEO4J_URI`（可选；未设则用内存图）
 - `NEO4J_USER` / `NEO4J_PASSWORD`
-- `OPENAI_API_KEY` 或其它 LiteLLM 厂商密钥；未设置时 `rules_only` 仍可用
+- `OPENAI_API_KEY` 或其它 LiteLLM 厂商密钥（在设置页登记供应商）
 
 可选图库（仅 Neo4j）：
 
@@ -50,7 +50,7 @@ npm run dev
 
 ## 演示路径
 
-1. 设置抽取器为 `rules_only`（或配置好模型后用 `hybrid`）。
-2. 上传 `backend/tests/fixtures/sample.txt` 或真实产品说明书。
-3. 在「审阅」接受对象等类型候选后点「投影到图」。
-4. 类型网与实例网按 IRI 查询；改显示名后图上标签同步。
+1. 在设置添加供应商、拉取模型并保存。
+2. 上传 `backend/tests/fixtures/sample.txt` 或真实产品说明书；选择供应商、具体模型，可选嵌入模型和「选择引导」。
+3. 在「审阅」接受对象等类型候选（有相似时选覆盖、新增或融合）后点「投影到图」。
+4. 类型网与实例网按编号查询；改显示名后图上标签同步。

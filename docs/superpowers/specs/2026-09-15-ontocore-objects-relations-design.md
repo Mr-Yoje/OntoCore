@@ -3,7 +3,7 @@
 日期：2026-09-15  
 状态：现行实现规格  
 范围：模块化单体；非结构化文本抽取闭环；本体按对象 / 属性 / 关系管理  
-取代：[`2026-09-10-ontocore-objects-relations-design.md`](2026-09-10-ontocore-objects-relations-design.md)（保留作历史）。实现以**本文件**为准，但抽取引擎（抽取器种类、上传引导、判重、接受时覆盖/新增/融合）以 [`2026-09-20-extraction-engine-design.md`](2026-09-20-extraction-engine-design.md) 为准，落地前不要按本文件的 `hybrid` / `rules_only` 条款实现。  
+取代：[`2026-09-10-ontocore-objects-relations-design.md`](2026-09-10-ontocore-objects-relations-design.md)（保留作历史）。实现以**本文件**为准，但抽取引擎（单一 LLM 抽取、上传引导、判重、接受时覆盖/新增/融合）以 [`2026-09-20-extraction-engine-design.md`](2026-09-20-extraction-engine-design.md) 为准。  
 对照更早草案：[`2026-09-10-ontocore-design.md`](2026-09-10-ontocore-design.md) 仍保留不改。
 
 ## 相对 2026-09-10 版的融合要点
@@ -12,7 +12,7 @@
 
 - 设置只登记**供应商**（地址、密钥、调用前缀、选中模型），不在设置里绑定抽取器。
 - 具体模型从供应商 OpenAI 兼容的模型列表接口拉取，下拉选择；保存时写入供应商记录。
-- 上传页选择：抽取器 + 供应商 + 具体模型 + 是否 thinking；`rules_only` 不调模型。
+- 上传页选择：供应商 + 具体模型 + 是否 thinking + 可选嵌入模型 +「选择引导」。抽取固定走 LLM，不再选抽取器。
 - 设置页可测试联通；提示用右上角弹出 tips。
 - 前端视觉参考 Dify 浅色工作台。
 - 新建对象时可在同一表单附带可选属性。
@@ -63,7 +63,7 @@ OntoCore 是本体管理工具：维护对象、属性、关系，从说明书�
 
 Python 后端 + TypeScript Web。四块：类型层服务、实例图层服务、抽取编排（文档 → 抽取器 → LiteLLM 结构化调用 → 候选）、Projector（IRI ↔ 图显示）。
 
-插件边界：抽取器、LLM 供应商、RDF 实现、图库。没有领域包。抽取器入参：文档、当前权威类型层快照、LLM 网关。
+插件边界：抽取器、LLM 供应商、RDF 实现、图库。没有领域包。抽取器入参：文档、当前权威类型层快照、LLM 网关、可选引导。
 
 ## 4. 数据模型（产品层）
 
@@ -73,7 +73,7 @@ Python 后端 + TypeScript Web。四块：类型层服务、实例图层服务�
 
 ### 5.1–5.6
 
-DocumentIngress、Extractor（`hybrid` / `llm_only` / `rules_only`）、CandidateStore、类型层仓库、GraphRepository / Projector 仍按上一版：抽取器只经 `complete_structured`；人审只有类型候选；投影跳过未确认类型。
+DocumentIngress、Extractor（单一 LLM，见 2026-09-20）、CandidateStore、类型层仓库、GraphRepository / Projector 仍按上一版：抽取器只经 `complete_structured`；人审只有类型候选；投影跳过未确认类型。
 
 ### 5.3 LLM 与供应商
 
@@ -91,7 +91,7 @@ DocumentIngress、Extractor（`hybrid` / `llm_only` / `rules_only`）、Candidat
 
 模型列表：`GET {api_base}/v1/models`（若 Base URL 已以 `/v1` 结尾则 `{api_base}/models`），Bearer 密钥。选项来自返回的 `id`。具体模型名与前缀拼成 LiteLLM 模型（已含 `/` 则不再加前缀）。可选 `thinking`。
 
-作业在需要模型时必须带 `provider_id` 与具体模型名。
+作业必须带 `provider_id` 与具体模型名。可选嵌入模型与引导对象/关系/实例。
 
 ### 5.7 HTTP API
 
@@ -113,10 +113,10 @@ DocumentIngress、Extractor（`hybrid` / `llm_only` / `rules_only`）、Candidat
 主页面对象关系网铺满；顶栏「新建对象」「新建关系」打开弹窗。新建对象弹窗可附带可选属性行。点图上节点打开对象详情弹窗（改显示名/定义/父对象、属性、删除）。点图上的边打开关系详情弹窗（可删除）。主页面不放对象列表。新建表单不嵌在主页面正文里。
 
 **上传**  
-文件 + 抽取器。非 `rules_only` 时选供应商与具体模型（列表来自该供应商接口）、可选 thinking。无领域包。
+文件 + 供应商 + 具体模型（列表来自该供应商接口）+ 可选 thinking + 可选嵌入模型（可空「不使用嵌入」）+「选择引导」。无领域包。
 
 **审阅**  
-仅类型候选：接受 / 拒绝。作业「投影到图」。不提供实例逐条接受。当前实现不提供审阅时改候选显示名（见 §12）。
+仅类型候选：接受 / 拒绝。对象/关系若有相似，接受时对话框选目标并选覆盖、新增或融合。属性只新建。作业「投影到图」。不提供实例逐条接受。当前实现不提供审阅时改候选显示名（见 §12）。
 
 **图**  
 实例关系网，可按对象筛选，可删节点和边。
@@ -127,8 +127,8 @@ DocumentIngress、Extractor（`hybrid` / `llm_only` / `rules_only`）、Candidat
 ## 7. 数据流
 
 1. 用户在设置登记供应商并保存（含当前选中模型）。
-2. 上传时选抽取器；若需模型再选供应商与列表中的模型 → Job。
-3. 解析与抽取；`rules_only` 不调 LLM。失败则 `failed`。
+2. 上传时选供应商、列表中的模型、可选嵌入与引导 → Job（抽取固定 LLM）。
+3. 解析与抽取。失败则 `failed`。
 4. 人审类型后「投影到图」。
 5. 本体页走类型层，图页走实例。导出 Turtle / JSON-LD。
 
@@ -156,7 +156,7 @@ Git：主干 `main`，精简 Conventional Commits，默认不开功能分支。�
 | 类型层 | Oxigraph |
 | 实例 | Neo4j（可关，用内存图） |
 | 作业/候选 | SQLite |
-| 默认抽取 | hybrid |
+| 默认抽取 | llm |
 
 ## 11. 非目标
 
