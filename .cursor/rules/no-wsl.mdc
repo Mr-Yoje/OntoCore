@@ -1,0 +1,13 @@
+---
+description: 禁止安装或调用 WSL
+alwaysApply: true
+---
+
+# 禁止 WSL
+
+本机不使用、不安装 WSL。OntoCore 只在 Windows PowerShell 下开发。
+
+- 禁止运行 `wsl`、`wsl.exe`、`bash.exe`、`wsl --install`、`wsl --update`、`wsl --status`。
+- 禁止为了 Docker、Codex、浏览器或调试去安装 WSL。
+- Shell 只用 PowerShell（`powershell.exe`）。不要用 `bash -c`、heredoc 依赖 bash。
+- 看到安装 WSL 的弹窗：取消，不要点安装。
