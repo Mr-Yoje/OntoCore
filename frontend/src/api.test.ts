@@ -82,7 +82,8 @@ describe("copy", () => {
     expect(t.includes("listSettingsModels")).toBe(true);
     expect(t.includes("测试联通")).toBe(false);
     expect(t.includes('{testing ? "测试中…" : "测试"}')).toBe(true);
-    expect(t.includes("拉取模型")).toBe(true);
+    expect(t.includes('{loadingModels ? "拉取中…" : "拉取模型"}')).toBe(true);
+    expect(t.includes("正在拉取模型")).toBe(true);
     expect(t.includes("去掉此模型供应商")).toBe(false);
     expect(t.includes(">删除<")).toBe(true);
     expect(t.includes(">保存模型供应商</button>")).toBe(false);
@@ -91,6 +92,16 @@ describe("copy", () => {
     expect(t.includes("settings-stack")).toBe(true);
     expect(t.includes("vendor-card")).toBe(true);
     expect(t.includes("model:")).toBe(true);
+  });
+
+  it("settings fetches vendor models when the dialog opens not on page load", () => {
+    const page = readFileSync("src/pages/SettingsPage.tsx", "utf8");
+    const settings = page.slice(page.indexOf("export function SettingsPage"));
+    const loadStart = settings.indexOf("useEffect");
+    const fetchStart = settings.indexOf("useEffect", loadStart + 1);
+    const dialogKeyAt = settings.indexOf("function dialogKey");
+    expect(settings.slice(loadStart, fetchStart).includes("listSettingsModels")).toBe(false);
+    expect(settings.slice(fetchStart, dialogKeyAt).includes("listSettingsModels")).toBe(true);
   });
 
   it("settings vendors use a card grid; add and edit open dialogs", () => {
@@ -115,7 +126,8 @@ describe("copy", () => {
     const dialogChunk = page.slice(dialogAt);
     expect(dialogChunk.includes("测试联通")).toBe(false);
     expect(dialogChunk.includes('{testing ? "测试中…" : "测试"}')).toBe(true);
-    expect(dialogChunk.includes("拉取模型")).toBe(true);
+    expect(dialogChunk.includes('{loadingModels ? "拉取中…" : "拉取模型"}')).toBe(true);
+    expect(dialogChunk.includes("正在拉取模型")).toBe(true);
     expect(dialogChunk.includes(">删除<")).toBe(true);
     expect(dialogChunk.includes(">保存</button>")).toBe(true);
   });
@@ -259,5 +271,16 @@ describe("public error copy", () => {
     expect(text.includes("data:image")).toBe(false);
     expect(text.includes("OC-")).toBe(false);
     expect(tipText(new ApiError(400, "请填写 Base URL"))).toBe("请填写 Base URL");
+  });
+
+  it("maps offline DNS errors instead of generic model failure", async () => {
+    const { tipText, appendTip } = await import("./tips");
+    const { ApiError, sanitizePublicError } = await import("./api");
+    const dns = "[Errno 11001] getaddrinfo failed";
+    expect(sanitizePublicError(dns)).toBe("无法连接服务，请检查网络");
+    expect(tipText(new ApiError(400, dns))).toBe("无法连接服务，请检查网络");
+    expect(tipText(new TypeError("Failed to fetch"))).toBe("无法连接服务，请检查网络");
+    const first = { id: 1, kind: "business" as const, text: "无法连接服务，请检查网络" };
+    expect(appendTip([first], { id: 2, kind: "business", text: first.text })).toEqual([first]);
   });
 });

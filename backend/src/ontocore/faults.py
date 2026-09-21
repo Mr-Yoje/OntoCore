@@ -85,6 +85,28 @@ def _has_cjk(text: str) -> bool:
     return any("\u4e00" <= ch <= "\u9fff" for ch in text)
 
 
+def _looks_like_offline(low: str) -> bool:
+    return any(
+        marker in low
+        for marker in (
+            "connection",
+            "connect",
+            "name or service not known",
+            "getaddrinfo",
+            "errno 11001",
+            "winerror 10051",
+            "winerror 10065",
+            "unreachable",
+            "network is down",
+            "failed to resolve",
+            "nodename nor servname",
+            "failed to fetch",
+            "networkerror",
+            "offline",
+        )
+    )
+
+
 def _looks_like_dump(text: str) -> bool:
     low = text.lower()
     if any(marker in low for marker in _DUMP_MARKERS):
@@ -101,8 +123,8 @@ def public_llm_message(raw: str) -> str:
         return "密钥无效或未填写，请检查 API Key"
     if "timeout" in low or "timed out" in low:
         return "连接超时，请检查 Base URL 或网络"
-    if "connection" in low or "connect" in low or "name or service not known" in low:
-        return "无法连接服务，请检查 Base URL"
+    if _looks_like_offline(low):
+        return "无法连接服务，请检查网络"
     if "404" in low or "not found" in low:
         return "接口不存在，请检查 Base URL 和模型名称"
     if "429" in low:

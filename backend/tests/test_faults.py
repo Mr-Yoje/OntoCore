@@ -181,6 +181,15 @@ def test_public_llm_message_keeps_mapped_and_chinese():
     assert public_llm_message("模型列表为空") == "模型列表为空"
 
 
+def test_public_llm_message_maps_offline_dns():
+    from ontocore.faults import public_llm_message
+
+    mapped = public_llm_message("[Errno 11001] getaddrinfo failed")
+    assert mapped == "无法连接服务，请检查网络"
+    assert "getaddrinfo" not in mapped
+    assert public_llm_message("Network is unreachable") == "无法连接服务，请检查网络"
+
+
 def test_settings_probe_hides_litellm_html_dump(tmp_path, monkeypatch):
     from types import SimpleNamespace
 
@@ -233,4 +242,20 @@ def test_settings_models_hides_html_error_body(tmp_path, monkeypatch):
     assert "rel=" not in body["detail"]
     assert "<!DOCTYPE" not in body["detail"]
     assert "data:image" not in json.dumps(body)
+
+
+def test_settings_models_maps_offline_dns(tmp_path, monkeypatch):
+    import urllib.error
+
+    def fake_urlopen(request, timeout=20):
+        raise urllib.error.URLError("[Errno 11001] getaddrinfo failed")
+
+    monkeypatch.setattr("ontocore.settings.urllib.request.urlopen", fake_urlopen)
+    client = TestClient(create_app(data_dir=tmp_path))
+    response = client.post(
+        "/api/settings/models",
+        json={"api_base": "https://api.openai.com", "api_key": "sk-test"},
+    )
+    assert response.status_code == 400
+    assert response.json()["detail"] == "无法连接服务，请检查网络"
 

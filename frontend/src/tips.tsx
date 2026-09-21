@@ -3,7 +3,12 @@ import { ApiError, sanitizePublicError } from "./api";
 
 export type TipKind = "ok" | "error" | "business" | "system";
 
-type Tip = { id: number; kind: TipKind; text: string };
+export type Tip = { id: number; kind: TipKind; text: string };
+
+export function appendTip(rows: Tip[], tip: Tip): Tip[] {
+  if (rows.some((row) => row.text === tip.text)) return rows;
+  return [...rows, tip];
+}
 
 type ShowTip = (kind: TipKind, text: string) => void;
 
@@ -31,7 +36,7 @@ export function TipHost({ children }: { children: ReactNode }) {
     if (!message) return;
     const id = Date.now() + Math.random();
     const visual: TipKind = kind === "error" ? "business" : kind;
-    setTips((rows) => [...rows, { id, kind: visual, text: message }]);
+    setTips((rows) => appendTip(rows, { id, kind: visual, text: message }));
     window.setTimeout(() => {
       setTips((rows) => rows.filter((row) => row.id !== id));
     }, 4200);

@@ -30,9 +30,22 @@ function looksLikeInternalDump(text: string): boolean {
   );
 }
 
+function looksLikeOffline(text: string): boolean {
+  const low = text.toLowerCase();
+  return (
+    low.includes("getaddrinfo") ||
+    low.includes("errno 11001") ||
+    low.includes("failed to fetch") ||
+    low.includes("networkerror") ||
+    low.includes("network is unreachable") ||
+    low.includes("offline")
+  );
+}
+
 export function sanitizePublicError(text: string): string {
   const trimmed = text.trim();
   if (!trimmed) return "操作失败";
+  if (looksLikeOffline(trimmed)) return "无法连接服务，请检查网络";
   if (looksLikeInternalDump(trimmed) || trimmed.includes("OC-")) {
     return "模型调用失败";
   }

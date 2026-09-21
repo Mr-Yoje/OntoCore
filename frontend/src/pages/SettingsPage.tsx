@@ -82,6 +82,11 @@ export function SettingsPage() {
   const [loadingModels, setLoadingModels] = useState(false);
   const [dialog, setDialog] = useState<VendorDialog | null>(null);
   const [prefixes, setPrefixes] = useState<string[]>(["openai"]);
+  const dialogToken = dialog
+    ? dialog.mode === "create"
+      ? "create"
+      : `${dialog.index}:${dialog.draft.id ?? ""}`
+    : "";
 
   useEffect(() => {
     void api
@@ -99,27 +104,44 @@ export function SettingsPage() {
           if (row.model) selected[vendorKey(row, index)] = row.model;
         });
         setProbeModels(selected);
-        rows.forEach((row, index) => {
-          if (!row.id && !row.api_base.trim()) return;
-          void api
-            .listSettingsModels({
-              provider_id: row.id,
-              prefix: row.prefix,
-              api_base: row.api_base.trim(),
-            })
-            .then((result) => {
-              const key = vendorKey(row, index);
-              setCatalogs((prev) => ({ ...prev, [key]: result.models }));
-              setProbeModels((prev) => ({
-                ...prev,
-                [key]: result.models.includes(prev[key]) ? prev[key] : result.models[0] ?? "",
-              }));
-            })
-            .catch((e) => reportError(showTip, e));
-        });
       })
       .catch((e) => reportError(showTip, e));
   }, [showTip]);
+
+  useEffect(() => {
+    if (!dialog) return;
+    const row = dialog.draft;
+    if (!row.api_base.trim()) return;
+    if (!row.id && !(row.api_key ?? "").trim() && !row.has_api_key) return;
+    const key =
+      dialog.mode === "create" ? "new-create" : vendorKey(dialog.draft, dialog.index);
+    let cancelled = false;
+    setLoadingModels(true);
+    void api
+      .listSettingsModels({
+        provider_id: row.id,
+        prefix: row.prefix,
+        api_base: row.api_base.trim(),
+        api_key: row.api_key && row.api_key.trim() !== "" ? row.api_key : null,
+      })
+      .then((result) => {
+        if (cancelled) return;
+        setCatalogs((prev) => ({ ...prev, [key]: result.models }));
+        setProbeModels((prev) => ({
+          ...prev,
+          [key]: result.models.includes(prev[key]) ? prev[key] : result.models[0] ?? "",
+        }));
+      })
+      .catch((e) => {
+        if (!cancelled) reportError(showTip, e);
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingModels(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [dialogToken, showTip]);
 
   function dialogKey() {
     if (!dialog) return "draft";
@@ -169,6 +191,15 @@ export function SettingsPage() {
   async function fetchModels() {
     if (!dialog) return;
     const row = dialog.draft;
+    if (!row.api_base.trim()) {
+      showTip("error", "请填写 Base URL");
+      return;
+    }
+    if (!row.id && !(row.api_key ?? "").trim() && !row.has_api_key) {
+      showTip("error", "请填写 API Key");
+      return;
+    }
+    const key = dialogKey();
     setLoadingModels(true);
     try {
       const result = await api.listSettingsModels({
@@ -177,7 +208,6 @@ export function SettingsPage() {
         api_base: row.api_base.trim(),
         api_key: row.api_key && row.api_key.trim() !== "" ? row.api_key : null,
       });
-      const key = dialogKey();
       setCatalogs((prev) => ({ ...prev, [key]: result.models }));
       setProbeModels((prev) => ({
         ...prev,
@@ -185,7 +215,7 @@ export function SettingsPage() {
       }));
       showTip("ok", `已拉取 ${result.models.length} 个模型`);
     } catch (e) {
-        reportError(showTip, e);
+      reportError(showTip, e);
     } finally {
       setLoadingModels(false);
     }
@@ -235,7 +265,7 @@ export function SettingsPage() {
     const row = dialog.draft;
     const model = probeModels[dialogKey()]?.trim() ?? "";
     if (!model) {
-      showTip("error", "请先拉取模型列表，再选择测试用模型");
+      showTip("error", loadingModels ? "正在拉取模型…" : "暂无可用的测试用模型");
       return;
     }
     setTesting(true);
@@ -411,10 +441,12 @@ export function SettingsPage() {
                   onChange={(e) =>
                     setProbeModels((prev) => ({ ...prev, [key]: e.target.value }))
                   }
-                  disabled={models.length === 0}
+                  disabled={models.length === 0 || loadingModels}
                 >
-                  {models.length === 0 ? (
-                    <option value="">请先拉取模型列表</option>
+                  {loadingModels ? (
+                    <option value="">正在拉取模型…</option>
+                  ) : models.length === 0 ? (
+                    <option value="">暂无模型</option>
                   ) : (
                     models.map((name) => (
                       <option key={name} value={name}>
