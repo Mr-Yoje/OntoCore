@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import threading
+import uuid
 from pathlib import Path
 
 from pyoxigraph import DefaultGraph, Literal, NamedNode, Quad, RdfFormat, Store
@@ -297,6 +298,84 @@ class OntologyRepository:
             self._add(subject, RDFS_RANGE, _node(item.target_iri))
             self._persist()
 
+    def replace_object_bundle(
+        self,
+        target_iri: str,
+        *,
+        label: str,
+        definition: str,
+        parent_iri: str | None,
+        attributes: list[OntoAttribute],
+    ) -> None:
+        with self._lock:
+            if not self._is_class(target_iri):
+                raise OntologyWriteError(f"object does not exist: {target_iri}")
+            self.update_object(
+                target_iri,
+                label=label,
+                definition=definition,
+                parent_iri=parent_iri,
+            )
+            incoming = [
+                OntoAttribute(
+                    iri=item.iri,
+                    label=item.label,
+                    definition=item.definition,
+                    owner_iri=target_iri,
+                    literal_kind=item.literal_kind,
+                )
+                for item in attributes
+            ]
+            keep = {item.iri for item in incoming}
+            for attr in list(self._attributes()):
+                if attr.owner_iri == target_iri and attr.iri not in keep:
+                    self.delete_attribute(attr.iri)
+            existing_attrs = {item.iri for item in self._attributes()}
+            for item in incoming:
+                if item.iri in existing_attrs:
+                    self.update_attribute(
+                        item.iri,
+                        label=item.label,
+                        definition=item.definition,
+                        literal_kind=item.literal_kind,
+                    )
+                    continue
+                iri = item.iri if not self.has_iri(item.iri) else self._fresh_iri(item.iri)
+                self.create_attribute(
+                    OntoAttribute(
+                        iri=iri,
+                        label=item.label,
+                        definition=item.definition,
+                        owner_iri=target_iri,
+                        literal_kind=item.literal_kind,
+                    )
+                )
+
+    def replace_relation_payload(
+        self,
+        target_iri: str,
+        *,
+        label: str,
+        definition: str,
+        source_iri: str,
+        target_object_iri: str,
+    ) -> None:
+        with self._lock:
+            if self._relation_by_iri(target_iri) is None:
+                raise OntologyWriteError(f"relation does not exist: {target_iri}")
+            if not self._is_class(source_iri):
+                raise OntologyWriteError(f"source object does not exist: {source_iri}")
+            if not self._is_class(target_object_iri):
+                raise OntologyWriteError(f"target object does not exist: {target_object_iri}")
+            subject = _node(target_iri)
+            self._replace(subject, RDFS_LABEL, _literal(label))
+            self._replace(subject, RDFS_COMMENT, _literal(definition))
+            self._clear_predicate(subject, RDFS_DOMAIN)
+            self._clear_predicate(subject, RDFS_RANGE)
+            self._add(subject, RDFS_DOMAIN, _node(source_iri))
+            self._add(subject, RDFS_RANGE, _node(target_object_iri))
+            self._persist()
+
     def update_relation(
         self,
         iri: str,
@@ -389,6 +468,17 @@ class OntologyRepository:
         with self._lock:
             node = _node(iri)
             return any(self._store.quads_for_pattern(node, None, None))
+
+    def _fresh_iri(self, preferred: str) -> str:
+        if "#" in preferred:
+            prefix, local = preferred.rsplit("#", 1)
+            prefix = f"{prefix}#"
+        else:
+            prefix, local = NS, preferred.rsplit("/", 1)[-1]
+        while True:
+            candidate = f"{prefix}{local}_{uuid.uuid4().hex[:8]}"
+            if not self.has_iri(candidate):
+                return candidate
 
     def _add(self, subject: NamedNode, predicate: NamedNode, obj: NamedNode | Literal) -> None:
         self._store.add(Quad(subject, predicate, obj))

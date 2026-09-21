@@ -8,7 +8,15 @@ from ontocore.graph.ports import GraphNode
 from ontocore.graph.projector import Projector
 from ontocore.jobs.service import JobService
 from ontocore.jobs.store import JobStore
-from ontocore.models import BlockFailure, ExtractionResult
+from ontocore.models import (
+    AttributeCandidateDraft,
+    BlockFailure,
+    ExtractionResult,
+    ObjectCandidateDraft,
+    OntoAttribute,
+    OntoObject,
+    SimilarRef,
+)
 from ontocore.ontology.repository import OntologyRepository
 from ontocore.review.service import ReviewService
 
@@ -62,7 +70,7 @@ def test_accept_object_then_project(tmp_path):
     js = JobService(jobs, candidates, ontology, llm_factory, MemoryGraph())
     job = jobs.create("a.txt", "llm", "fake")
     js.run(job.id, "a.txt", "尊享医疗保险".encode("utf-8"))
-    review = ReviewService(candidates, ontology, projector, jobs, graph)
+    review = ReviewService(candidates, ontology, projector, jobs, graph, llm_factory)
     types = candidates.list_type_candidates(job.id)
     review.accept_type(types[0].id)
     assert any(o.label == "保险产品" for o in ontology.snapshot().objects)
@@ -87,7 +95,9 @@ def test_graph_unavailable_keeps_accepted_types(tmp_path):
     js = JobService(jobs, candidates, ontology, lambda model: FakeLlmGateway(_canned()), MemoryGraph())
     job = jobs.create("a.txt", "llm", "fake")
     js.run(job.id, "a.txt", "尊享医疗保险".encode("utf-8"))
-    review = ReviewService(candidates, ontology, projector, jobs, graph)
+    review = ReviewService(
+        candidates, ontology, projector, jobs, graph, lambda model: FakeLlmGateway(_canned()),
+    )
     types = candidates.list_type_candidates(job.id)
     review.accept_type(types[0].id)
     try:
@@ -110,7 +120,9 @@ def test_delete_object_conflicts_when_instances_exist(tmp_path):
     js = JobService(jobs, candidates, ontology, lambda model: FakeLlmGateway(_canned()), MemoryGraph())
     job = jobs.create("a.txt", "llm", "fake")
     js.run(job.id, "a.txt", "尊享医疗保险".encode("utf-8"))
-    review = ReviewService(candidates, ontology, projector, jobs, graph)
+    review = ReviewService(
+        candidates, ontology, projector, jobs, graph, lambda model: FakeLlmGateway(_canned()),
+    )
     types = candidates.list_type_candidates(job.id)
     review.accept_type(types[0].id)
     review.project_job(job.id)
@@ -256,7 +268,9 @@ def test_successful_rel_not_skipped_when_longer_predicate_skipped(tmp_path):
     js = JobService(jobs, candidates, ontology, lambda model: FakeLlmGateway(canned), MemoryGraph())
     job = jobs.create("a.txt", "llm", "fake")
     js.run(job.id, "a.txt", "尊享医疗保险".encode("utf-8"))
-    review = ReviewService(candidates, ontology, projector, jobs, graph)
+    review = ReviewService(
+        candidates, ontology, projector, jobs, graph, lambda model: FakeLlmGateway(canned),
+    )
     for item in candidates.list_type_candidates(job.id):
         review.accept_type(item.id)
     review.project_job(job.id)
@@ -300,3 +314,62 @@ def test_job_extract_then_partial_on_judge_failure(tmp_path, monkeypatch):
     rows = cands.list_type_candidates(job.id)
     assert rows[0].payload["label"] == "新品"
     assert rows[0].payload.get("similar_to") in ([], None)
+
+
+def test_accept_overwrite_replaces_object_attributes(tmp_path):
+    onto = OntologyRepository(str(tmp_path / "o"))
+    onto.create_object(OntoObject(iri=f"{NS}Product", label="旧名", definition="旧定义"))
+    onto.create_attribute(OntoAttribute(
+        iri=f"{NS}oldAttr", label="旧属性", definition="x",
+        owner_iri=f"{NS}Product", literal_kind="text",
+    ))
+    jobs = JobStore(str(tmp_path / "j.db"))
+    cands = CandidateStore(str(tmp_path / "j.db"))
+    job = jobs.create("a.txt", "llm", "fake")
+    cands.replace_job_results(job.id, ExtractionResult(
+        object_candidates=[ObjectCandidateDraft(
+            iri=f"{NS}New", label="新名", definition="新定义", parent_iri=None,
+            evidence="e", block_id="b0", confidence=0.9,
+            similar_to=[SimilarRef(iri=f"{NS}Product", label="旧名")],
+        )],
+        attribute_candidates=[AttributeCandidateDraft(
+            iri=f"{NS}newAttr", label="新属性", definition="y",
+            owner_iri=f"{NS}New", literal_kind="text",
+            evidence="e", block_id="b0", confidence=0.9,
+        )],
+        relation_candidates=[], instance_suggestions=[], instance_rel_suggestions=[],
+    ))
+    review = ReviewService(cands, onto, Projector(MemoryGraph()), jobs, MemoryGraph(), lambda *a, **k: None)
+    oid = [r for r in cands.list_type_candidates(job.id) if r.kind == "object"][0].id
+    review.accept_type(oid, mode="overwrite", target_iri=f"{NS}Product")
+    snap = onto.snapshot()
+    product = [o for o in snap.objects if o.iri == f"{NS}Product"][0]
+    assert product.label == "新名"
+    owned = [a for a in snap.attributes if a.owner_iri == f"{NS}Product"]
+    assert {a.label for a in owned} == {"新属性"}
+
+
+def test_accept_merge_writes_llm_result(tmp_path):
+    onto = OntologyRepository(str(tmp_path / "o"))
+    onto.create_object(OntoObject(iri=f"{NS}Product", label="旧名", definition="旧定义"))
+    jobs = JobStore(str(tmp_path / "j.db"))
+    cands = CandidateStore(str(tmp_path / "j.db"))
+    job = jobs.create("a.txt", "llm", "fake")
+    cands.replace_job_results(job.id, ExtractionResult(
+        object_candidates=[ObjectCandidateDraft(
+            iri=f"{NS}New", label="新名", definition="新定义", parent_iri=None,
+            evidence="e", block_id="b0", confidence=0.9,
+            similar_to=[SimilarRef(iri=f"{NS}Product", label="旧名")],
+        )],
+        attribute_candidates=[], relation_candidates=[],
+        instance_suggestions=[], instance_rel_suggestions=[],
+    ))
+    gw = FakeLlmGateway({
+        "label": "融合名", "definition": "融合定义", "parent_iri": None,
+        "attributes": [],
+    })
+    graph = MemoryGraph()
+    review = ReviewService(cands, onto, Projector(graph), jobs, graph, lambda *a, **k: gw)
+    oid = [r for r in cands.list_type_candidates(job.id) if r.kind == "object"][0].id
+    review.accept_type(oid, mode="merge", target_iri=f"{NS}Product")
+    assert [o.label for o in onto.snapshot().objects if o.iri == f"{NS}Product"] == ["融合名"]

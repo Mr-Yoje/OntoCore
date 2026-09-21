@@ -205,3 +205,26 @@ def test_disk_repo_opens_when_oxigraph_dir_is_corrupt(tmp_path):
         assert second.snapshot().objects[0].label == "保险产品"
     finally:
         second.close()
+
+
+def test_replace_relation_payload_updates_domain_range():
+    repo = OntologyRepository()
+    repo.create_object(OntoObject(iri=f"{NS}A", label="A", definition="d"))
+    repo.create_object(OntoObject(iri=f"{NS}B", label="B", definition="d"))
+    repo.create_object(OntoObject(iri=f"{NS}C", label="C", definition="d"))
+    repo.create_relation(OntoRelation(
+        iri=f"{NS}rel", label="旧", definition="旧定义",
+        source_iri=f"{NS}A", target_iri=f"{NS}B",
+    ))
+    repo.replace_relation_payload(
+        f"{NS}rel",
+        label="新",
+        definition="新定义",
+        source_iri=f"{NS}A",
+        target_object_iri=f"{NS}C",
+    )
+    rel = [item for item in repo.snapshot().relations if item.iri == f"{NS}rel"][0]
+    assert rel.label == "新"
+    assert rel.definition == "新定义"
+    assert rel.source_iri == f"{NS}A"
+    assert rel.target_iri == f"{NS}C"

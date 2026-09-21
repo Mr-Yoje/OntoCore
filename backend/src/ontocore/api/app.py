@@ -204,7 +204,7 @@ def create_app(
 
     factory = llm_factory or _llm_from_settings
     job_service = JobService(jobs, candidates, ontology, factory, graph_repo)
-    review = ReviewService(candidates, ontology, projector, jobs, graph_repo)
+    review = ReviewService(candidates, ontology, projector, jobs, graph_repo, factory)
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
