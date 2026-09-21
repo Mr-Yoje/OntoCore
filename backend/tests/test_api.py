@@ -346,10 +346,23 @@ def test_post_jobs_extractor_error_is_not_500(monkeypatch):
 
     monkeypatch.setattr("ontocore.jobs.service.get_extractor", lambda name: Boom())
     client = TestClient(create_app())
+    saved = client.put(
+        "/api/settings",
+        json={
+            "providers": [
+                {
+                    "label": "测试供应商",
+                    "prefix": "openai",
+                    "api_base": "",
+                    "api_key": "sk-test",
+                }
+            ]
+        },
+    ).json()["providers"][0]
     r = client.post(
         "/api/jobs",
         files={"file": ("a.txt", "标题\n\n正文。".encode("utf-8"), "text/plain")},
-        data={"extractor": "rules_only"},
+        data={"extractor": "llm", "provider_id": saved["id"], "model": "fake"},
     )
     assert r.status_code == 200
     body = r.json()

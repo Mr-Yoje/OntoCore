@@ -59,7 +59,7 @@ def test_accept_object_then_project(tmp_path):
     def llm_factory(model):
         return FakeLlmGateway(_canned())
     js = JobService(jobs, candidates, ontology, llm_factory)
-    job = jobs.create("a.txt", "llm_only", "fake")
+    job = jobs.create("a.txt", "llm", "fake")
     js.run(job.id, "a.txt", "尊享医疗保险".encode("utf-8"))
     review = ReviewService(candidates, ontology, projector, jobs, graph)
     types = candidates.list_type_candidates(job.id)
@@ -84,7 +84,7 @@ def test_graph_unavailable_keeps_accepted_types(tmp_path):
     candidates = CandidateStore(sqlite)
     jobs = JobStore(sqlite)
     js = JobService(jobs, candidates, ontology, lambda model: FakeLlmGateway(_canned()))
-    job = jobs.create("a.txt", "llm_only", "fake")
+    job = jobs.create("a.txt", "llm", "fake")
     js.run(job.id, "a.txt", "尊享医疗保险".encode("utf-8"))
     review = ReviewService(candidates, ontology, projector, jobs, graph)
     types = candidates.list_type_candidates(job.id)
@@ -107,7 +107,7 @@ def test_delete_object_conflicts_when_instances_exist(tmp_path):
     candidates = CandidateStore(sqlite)
     jobs = JobStore(sqlite)
     js = JobService(jobs, candidates, ontology, lambda model: FakeLlmGateway(_canned()))
-    job = jobs.create("a.txt", "llm_only", "fake")
+    job = jobs.create("a.txt", "llm", "fake")
     js.run(job.id, "a.txt", "尊享医疗保险".encode("utf-8"))
     review = ReviewService(candidates, ontology, projector, jobs, graph)
     types = candidates.list_type_candidates(job.id)
@@ -146,7 +146,7 @@ def test_all_block_failures_without_candidates_is_failed(tmp_path, monkeypatch):
         OntologyRepository(),
         lambda model: FakeLlmGateway({}),
     )
-    job = jobs.create("a.txt", "llm_only", "fake")
+    job = jobs.create("a.txt", "llm", "fake")
     finished = js.run(job.id, "a.txt", "尊享医疗保险".encode("utf-8"))
     assert finished.status == "failed"
 
@@ -169,7 +169,7 @@ def test_extractor_exception_marks_job_failed(tmp_path, monkeypatch):
         OntologyRepository(),
         lambda model: FakeLlmGateway({}),
     )
-    job = jobs.create("a.txt", "llm_only", "fake")
+    job = jobs.create("a.txt", "llm", "fake")
     finished = js.run(job.id, "a.txt", "尊享医疗保险".encode("utf-8"))
     assert finished.status == "failed"
     assert "llm down" in (finished.error or "")
@@ -195,7 +195,7 @@ def test_invalid_drafts_can_leave_job_partial(tmp_path):
         OntologyRepository(),
         lambda model: FakeLlmGateway(canned),
     )
-    job = jobs.create("a.txt", "llm_only", "fake")
+    job = jobs.create("a.txt", "llm", "fake")
     finished = js.run(job.id, "a.txt", "尊享医疗保险".encode("utf-8"))
     assert finished.status == "partial"
 
@@ -250,7 +250,7 @@ def test_successful_rel_not_skipped_when_longer_predicate_skipped(tmp_path):
         ],
     }
     js = JobService(jobs, candidates, ontology, lambda model: FakeLlmGateway(canned))
-    job = jobs.create("a.txt", "llm_only", "fake")
+    job = jobs.create("a.txt", "llm", "fake")
     js.run(job.id, "a.txt", "尊享医疗保险".encode("utf-8"))
     review = ReviewService(candidates, ontology, projector, jobs, graph)
     for item in candidates.list_type_candidates(job.id):

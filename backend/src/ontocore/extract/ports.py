@@ -7,4 +7,11 @@ from ontocore.models import ExtractionGuides, ExtractionResult, ParsedDocument, 
 class Extractor(Protocol):
     name: str
 
-    def extract(self, doc: ParsedDocument, snapshot: TypeSnapshot, llm: LlmGateway) -> ExtractionResult: ...
+    def extract(
+        self,
+        doc: ParsedDocument,
+        snapshot: TypeSnapshot,
+        llm: LlmGateway,
+        *,
+        guides: ExtractionGuides | None = None,
+    ) -> ExtractionResult: ...

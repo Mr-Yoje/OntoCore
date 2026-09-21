@@ -16,17 +16,37 @@ def test_empty_app_and_fixture_extract():
     assert network.edges == ()
     text = Path(__file__).parent.joinpath("fixtures/sample.txt").read_bytes()
     doc = parse_upload("sample.txt", text)
-    result = get_extractor("rules_only").extract(
-        doc, TypeSnapshot(objects=(), attributes=(), relations=()), FakeLlmGateway({})
+    canned_objects = {
+        "object_candidates": [{
+            "iri": f"{NS}Wait", "label": "等待期", "definition": "d",
+            "parent_iri": None, "evidence": "等待期", "block_id": "b0", "confidence": 0.5,
+        }],
+        "attribute_candidates": [],
+        "relation_candidates": [],
+        "instance_suggestions": [],
+        "instance_rel_suggestions": [],
+    }
+    result = get_extractor("llm").extract(
+        doc, TypeSnapshot(objects=(), attributes=(), relations=()), FakeLlmGateway(canned_objects)
     )
     assert result.object_candidates
-    with_product = get_extractor("rules_only").extract(
+    canned_instances = {
+        "object_candidates": [],
+        "attribute_candidates": [],
+        "relation_candidates": [],
+        "instance_suggestions": [{
+            "local_id": "i1", "type_iri": f"{NS}InsuranceProduct", "label": "尊享医疗保险",
+            "data": {}, "evidence": "尊享医疗保险", "block_id": "b0", "confidence": 0.8,
+        }],
+        "instance_rel_suggestions": [],
+    }
+    with_product = get_extractor("llm").extract(
         doc,
         TypeSnapshot(
             objects=(OntoObject(iri=f"{NS}InsuranceProduct", label="保险产品", definition=""),),
             attributes=(),
             relations=(),
         ),
-        FakeLlmGateway({}),
+        FakeLlmGateway(canned_instances),
     )
     assert with_product.instance_suggestions
