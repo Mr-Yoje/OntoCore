@@ -20,6 +20,21 @@
 
 改布局或样式时，核对是否仍符合上述语言，而不是另起一套皮肤。
 
+## 错误码与异常提示
+
+新增或改动会失败的路径时，必须接入现有故障码体系（规格见 [`superpowers/specs/2026-09-21-fault-logging-design.md`](superpowers/specs/2026-09-21-fault-logging-design.md)），不能只 `raise Exception` / 返回裸字符串。
+
+| 约定 | 要求 |
+| --- | --- |
+| 异常类型 | 走 `ontocore.errors` 的 `AppError` 谱系（`BusinessError` / `SystemError` 或既有子类）；必要时在 `errors.py` 增加带默认 `code` 的子类 |
+| 故障码 | 稳定码 `OC-xxxx`，按段选用：1xxx 入参/未找到、2xxx 对象属性关系写入、3xxx 作业抽取、4xxx 图基础设施、5xxx 设置、9xxx 未捕获。新场景优先复用已有码；确需新码时在同段内递增，并同步更新 `error_catalog` 与故障码规格表 |
+| 用户文案 | **一个码一句固定中文**，来自 `ontocore.error_catalog`（即 HTTP `detail` / 作业 `error`）；不含 `OC-`、不含堆栈/路径/异常类名；禁止调用点自由改写与对照表不一致的文案 |
+| HTTP | 由统一处理器返回 `{detail, code, kind, request_id}`；业务 `kind=business`，系统 `kind=system` |
+| 前端 | tips / 作业状态只展示友好中文；按 `kind` 选样式，**不渲染** `code` |
+| 测试 | 至少断言：对应 HTTP/`AppError` 的 `code`，以及 `detail` 等于对照表固定句 |
+
+完成自检：新失败路径能在日志里用 `OC-` 定位，界面只有可读提示。
+
 ## 测试必须覆盖新改动
 
 没有对应测试的行为改动，不算做完，也不能提交。
@@ -60,5 +75,6 @@ npm test
 
 1. 新行为有测试，相关测试全绿。
 2. 产品文案与前端视觉符合上文约定。
-3. 改了页面则浏览器核对过主路径。
-4. 一次提交一件事，信息符合 Git 规范。
+3. 会失败的路径已挂 `OC-xxxx` 与中文提示（见「错误码与异常提示」）。
+4. 改了页面则浏览器核对过主路径。
+5. 一次提交一件事，信息符合 Git 规范。

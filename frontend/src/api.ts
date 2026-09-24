@@ -90,6 +90,24 @@ export type ProviderDraft = {
   model?: string;
 };
 
+export type Job = {
+  id: string;
+  filename: string;
+  model: string;
+  status: string;
+  error: string | null;
+  error_kind?: string | null;
+  created_at?: string;
+  progress_done?: number;
+  progress_total?: number;
+  provider_id?: string | null;
+  thinking?: boolean;
+  embed_model?: string | null;
+  embed_provider_id?: string | null;
+  guide_object_iris?: string[];
+  guide_relation_iris?: string[];
+};
+
 export const api = {
   listObjects: () => fetch("/api/objects").then(parse),
   createObject: (body: {
@@ -146,6 +164,7 @@ export const api = {
   deleteRelation: (name: string) =>
     fetch(`/api/relations/${encodeURIComponent(name)}`, { method: "DELETE" }).then(parse),
   ontologyNetwork: () => fetch("/api/ontology/network").then(parse),
+  listJobs: () => fetch("/api/jobs").then(parse) as Promise<Job[]>,
   createJob: (
     file: File,
     body: {
@@ -167,9 +186,37 @@ export const api = {
     form.append("embed_model", body.embed_model);
     for (const iri of body.guide_object_iris) form.append("guide_object_iris", iri);
     for (const iri of body.guide_relation_iris) form.append("guide_relation_iris", iri);
-    return fetch("/api/jobs", { method: "POST", body: form }).then(parse);
+    return fetch("/api/jobs", { method: "POST", body: form }).then(parse) as Promise<Job>;
   },
-  getJob: (id: string) => fetch(`/api/jobs/${encodeURIComponent(id)}`).then(parse),
+  updateJob: (
+    id: string,
+    body: {
+      file?: File | null;
+      provider_id: string;
+      model: string;
+      thinking?: boolean;
+      embed_provider_id: string;
+      embed_model: string;
+      guide_object_iris: string[];
+      guide_relation_iris: string[];
+    },
+  ) => {
+    const form = new FormData();
+    if (body.file) form.append("file", body.file);
+    form.append("provider_id", body.provider_id);
+    form.append("model", body.model);
+    form.append("thinking", body.thinking ? "true" : "false");
+    form.append("embed_provider_id", body.embed_provider_id);
+    form.append("embed_model", body.embed_model);
+    for (const iri of body.guide_object_iris) form.append("guide_object_iris", iri);
+    for (const iri of body.guide_relation_iris) form.append("guide_relation_iris", iri);
+    return fetch(`/api/jobs/${encodeURIComponent(id)}`, { method: "PATCH", body: form }).then(
+      parse,
+    ) as Promise<Job>;
+  },
+  startJob: (id: string) =>
+    fetch(`/api/jobs/${encodeURIComponent(id)}/start`, { method: "POST" }).then(parse) as Promise<Job>,
+  getJob: (id: string) => fetch(`/api/jobs/${encodeURIComponent(id)}`).then(parse) as Promise<Job>,
   typeCandidates: (jobId: string) =>
     fetch(`/api/jobs/${encodeURIComponent(jobId)}/type-candidates`).then(parse),
   acceptType: (id: string, body?: { mode: string; target_iri?: string | null }) =>

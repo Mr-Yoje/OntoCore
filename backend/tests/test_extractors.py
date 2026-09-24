@@ -47,6 +47,8 @@ def test_llm_only_invalid_draft_becomes_block_failure():
     assert result.object_candidates == []
     assert result.block_failures
     assert result.block_failures[0].block_id == "b0"
+    from ontocore.error_catalog import fault_detail
+    assert result.block_failures[0].reason == fault_detail("OC-3101")
 
 
 def test_extract_prompt_contains_only_selected_guides():
@@ -113,6 +115,38 @@ def test_long_doc_extracts_per_heading_and_keeps_other_chunks():
     assert result.block_failures
 
 
+def test_extract_on_chunk_done_increments_to_total(monkeypatch):
+    from ontocore.extract.engine import LlmExtractor
+    from ontocore.extract.llm import FakeLlmGateway
+    from ontocore.models import ParsedDocument, TextBlock, TypeSnapshot
+
+    chunks = [("b0", "甲"), ("b1", "乙"), ("b2", "丙")]
+    monkeypatch.setattr(
+        "ontocore.extract.engine.extract_texts",
+        lambda doc: list(chunks),
+    )
+    empty = {
+        "object_candidates": [],
+        "attribute_candidates": [],
+        "relation_candidates": [],
+        "instance_suggestions": [],
+        "instance_rel_suggestions": [],
+    }
+    gw = FakeLlmGateway([dict(empty), {"__error__": True}, dict(empty)])
+    progress: list[tuple[int, int]] = []
+    doc = ParsedDocument("a.txt", "甲乙丙", (TextBlock("b0", "paragraph", "甲"),))
+    LlmExtractor().extract(
+        doc,
+        TypeSnapshot(objects=(), attributes=(), relations=()),
+        gw,
+        on_chunk_done=lambda done, total: progress.append((done, total)),
+    )
+    assert progress[0] == (0, 3)
+    assert progress[-1] == (3, 3)
+    assert [p[0] for p in progress] == [0, 1, 2, 3]
+    assert all(t == 3 for _, t in progress)
+
+
 def test_fake_gateway_queues_and_logs_messages():
     from ontocore.extract.llm import FakeLlmGateway
     from ontocore.errors import StructuredOutputError
@@ -127,6 +161,37 @@ def test_fake_gateway_queues_and_logs_messages():
         pass
     vec = FakeLlmGateway({}, embeddings={"保险产品": [1.0, 0.0]}).embed(["保险产品"])
     assert vec == [[1.0, 0.0]]
+
+
+def test_result_from_dict_unknown_shape_is_block_failure():
+    from ontocore.extract.llm_only import result_from_dict
+    from ontocore.error_catalog import fault_detail
+
+    result = result_from_dict({"对象": [{"label": "保险产品"}]})
+    assert result.object_candidates == []
+    assert result.attribute_candidates == []
+    assert result.relation_candidates == []
+    assert result.instance_suggestions == []
+    assert result.instance_rel_suggestions == []
+    assert result.block_failures
+    assert result.block_failures[0].reason == fault_detail("OC-3101")
+
+
+def test_extract_unknown_json_shape_is_block_failure():
+    from ontocore.extract.engine import LlmExtractor
+    from ontocore.extract.llm import FakeLlmGateway
+    from ontocore.models import ParsedDocument, TextBlock, TypeSnapshot
+    from ontocore.error_catalog import fault_detail
+
+    doc = ParsedDocument("a.txt", "尊享医疗保险", (TextBlock("b0", "paragraph", "尊享医疗保险"),))
+    result = LlmExtractor().extract(
+        doc,
+        TypeSnapshot(objects=(), attributes=(), relations=()),
+        FakeLlmGateway({"ok": True}),
+    )
+    assert result.object_candidates == []
+    assert result.block_failures
+    assert result.block_failures[0].reason == fault_detail("OC-3101")
 
 
 def test_result_from_dict_drops_llm_similar_to():

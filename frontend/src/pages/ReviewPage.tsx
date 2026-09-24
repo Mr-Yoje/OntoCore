@@ -1,6 +1,7 @@
 import { FormEvent, ReactNode, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { api } from "../api";
+import { ClipText } from "../clipText";
 import { reportError, useTip } from "../tips";
 
 type SimilarRef = { iri: string; label: string };
@@ -85,6 +86,23 @@ export function ReviewPage() {
   const [candidates, setCandidates] = useState<TypeCandidate[]>([]);
   const [projectResult, setProjectResult] = useState<unknown>(null);
   const [importDlg, setImportDlg] = useState<ImportDialog | null>(null);
+
+  useEffect(() => {
+    if (!jobFromQuery) return;
+    setJobId(jobFromQuery);
+    let cancelled = false;
+    void (async () => {
+      try {
+        const rows = (await api.typeCandidates(jobFromQuery)) as TypeCandidate[];
+        if (!cancelled) setCandidates(rows);
+      } catch (e) {
+        if (!cancelled) reportError(showTip, e);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [jobFromQuery, showTip]);
 
   const proposed = useMemo(
     () => candidates.filter((c) => c.status === "proposed"),
@@ -189,15 +207,25 @@ export function ReviewPage() {
               const hint = similarHint(c);
               return (
                 <tr key={c.id}>
-                  <td>{c.kind === "object" ? "对象" : c.kind === "attribute" ? "属性" : "关系"}</td>
                   <td>
-                    <div>{c.payload.label}</div>
-                    {hint ? <div className="muted">{hint}</div> : null}
+                    <ClipText
+                      text={c.kind === "object" ? "对象" : c.kind === "attribute" ? "属性" : "关系"}
+                    />
                   </td>
-                  <td>{c.payload.definition}</td>
-                  <td>{c.payload.evidence}</td>
-                  <td>{c.status}</td>
                   <td>
+                    <ClipText text={c.payload.label ?? ""} />
+                    {hint ? <ClipText text={hint} className="muted" /> : null}
+                  </td>
+                  <td>
+                    <ClipText text={c.payload.definition ?? ""} />
+                  </td>
+                  <td>
+                    <ClipText text={c.payload.evidence ?? ""} />
+                  </td>
+                  <td>
+                    <ClipText text={c.status} />
+                  </td>
+                  <td className="cell-actions">
                     {c.status === "proposed" ? (
                       <div className="actions">
                         <button type="button" onClick={() => act(c.id, true)}>

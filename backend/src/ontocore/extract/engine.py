@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 
+from ontocore.error_catalog import fault_detail
+from ontocore.errors import AppError
 from ontocore.extract.chunking import SHORT_TEXT_LIMIT, extract_texts
 from ontocore.extract.llm import LlmGateway
 from ontocore.extract.llm_only import EXTRACTION_SCHEMA, result_from_dict
-from ontocore.faults import KIND_BUSINESS, log_fault, public_llm_message
+from ontocore.faults import KIND_BUSINESS, log_fault, map_provider_fault
 from ontocore.models import (
     BlockFailure,
     ExtractionGuides,
@@ -29,6 +32,7 @@ class LlmExtractor:
         llm: LlmGateway,
         *,
         guides: ExtractionGuides | None = None,
+        on_chunk_done: Callable[[int, int], None] | None = None,
     ) -> ExtractionResult:
         del snapshot
         guides_payload = (
@@ -44,7 +48,11 @@ class LlmExtractor:
             instance_rel_suggestions=[],
             block_failures=[],
         )
-        for block_id, section_text in extract_texts(doc):
+        texts = extract_texts(doc)
+        total = len(texts)
+        if on_chunk_done is not None:
+            on_chunk_done(0, total)
+        for done, (block_id, section_text) in enumerate(texts, start=1):
             messages = [
                 {"role": "system", "content": SYSTEM_CONTENT},
                 {
@@ -62,15 +70,16 @@ class LlmExtractor:
             try:
                 payload = llm.complete_structured(EXTRACTION_SCHEMA, messages)
             except Exception as exc:
-                log_fault(
-                    code="OC-3101",
-                    kind=KIND_BUSINESS,
-                    detail=public_llm_message(str(exc)),
-                    exc=exc,
-                )
-                merged.block_failures.append(
-                    BlockFailure(block_id=block_id, reason=public_llm_message(str(exc))),
-                )
+                if isinstance(exc, AppError):
+                    code = exc.code
+                    detail = exc.message
+                else:
+                    code = map_provider_fault(str(exc), domain="job")
+                    detail = fault_detail(code)
+                log_fault(code=code, kind=KIND_BUSINESS, detail=detail, exc=exc)
+                merged.block_failures.append(BlockFailure(block_id=block_id, reason=detail))
+                if on_chunk_done is not None:
+                    on_chunk_done(done, total)
                 continue
             part = result_from_dict(payload)
             merged.object_candidates.extend(part.object_candidates)
@@ -79,6 +88,8 @@ class LlmExtractor:
             merged.instance_suggestions.extend(part.instance_suggestions)
             merged.instance_rel_suggestions.extend(part.instance_rel_suggestions)
             merged.block_failures.extend(part.block_failures)
+            if on_chunk_done is not None:
+                on_chunk_done(done, total)
         return merged
 
 

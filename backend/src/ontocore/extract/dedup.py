@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 import math
+from collections.abc import Callable
 
+from ontocore.errors import StructuredOutputError
 from ontocore.extract.llm import LlmGateway
 from ontocore.models import (
     ExtractionResult,
@@ -22,6 +24,7 @@ _JUDGE_SCHEMA: dict = {
         "object_similar": {"type": "object"},
         "relation_similar": {"type": "object"},
     },
+    "required": ["object_similar", "relation_similar"],
 }
 
 
@@ -80,6 +83,7 @@ def attach_similar(
     guide_object_iris: list[str],
     guide_relation_iris: list[str],
     use_embed: bool,
+    on_embed_finished: Callable[[], None] | None = None,
 ) -> None:
     if not result.object_candidates and not result.relation_candidates:
         return
@@ -108,6 +112,8 @@ def attach_similar(
         else:
             for text, vec in zip(texts, embedded):
                 vectors[text] = vec
+    if on_embed_finished is not None:
+        on_embed_finished()
 
     new_objects = []
     object_candidate_sets: dict[str, set[str]] = {}
@@ -137,6 +143,14 @@ def attach_similar(
         {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
     ]
     judged = llm.complete_structured(_JUDGE_SCHEMA, messages)
+    if (
+        not isinstance(judged, dict)
+        or "object_similar" not in judged
+        or "relation_similar" not in judged
+        or not isinstance(judged.get("object_similar"), dict)
+        or not isinstance(judged.get("relation_similar"), dict)
+    ):
+        raise StructuredOutputError(code="OC-3103")
 
     object_labels = {o.iri: o.label for o in snapshot.objects}
     relation_labels = {r.iri: r.label for r in snapshot.relations}

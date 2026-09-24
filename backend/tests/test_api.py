@@ -1,4 +1,6 @@
 import json
+import threading
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -8,7 +10,17 @@ from ontocore.api.app import create_app
 from ontocore.constants import NS
 from ontocore.errors import GraphUnavailable
 from ontocore.graph.ports import GraphNode
+from ontocore.jobs.runner import JobRunner
 from ontocore.ontology.repository import OntologyRepository
+
+
+def _sync_app(**kwargs):
+    kwargs.setdefault("job_runner", JobRunner(sync=True))
+    return create_app(**kwargs)
+
+
+def _start(client: TestClient, job_id: str):
+    return client.post(f"/api/jobs/{job_id}/start")
 
 
 def test_empty_network_and_no_domain_pack_routes():
@@ -257,9 +269,15 @@ def test_settings_probe_error(tmp_path, monkeypatch):
     client = TestClient(create_app(data_dir=tmp_path))
     r = client.post(
         "/api/settings/test",
-        json={"prefix": "openai", "model": "deepseek-chat", "api_key": "bad"},
+        json={
+            "prefix": "openai",
+            "model": "deepseek-chat",
+            "api_base": "https://api.deepseek.com",
+            "api_key": "bad",
+        },
     )
     assert r.status_code == 400
+    assert r.json()["code"] == "OC-5004"
     assert r.json()["detail"] == "密钥无效或未填写，请检查 API Key"
 
 
@@ -290,8 +308,8 @@ def test_delete_object_conflicts_when_instances_exist():
     )
     r = client.delete("/api/objects/Product")
     assert r.status_code == 409
-    assert "实例" in r.json()["detail"]
-    assert "对象" in r.json()["detail"]
+    assert r.json()["detail"] == "仍有实例占用该对象"
+    assert r.json()["code"] == "OC-2004"
 
 
 @pytest.mark.parametrize(
@@ -302,7 +320,7 @@ def test_delete_object_conflicts_when_instances_exist():
     ],
 )
 def test_post_jobs_ingress_error_returns_400(filename, content):
-    client = TestClient(create_app())
+    client = TestClient(_sync_app())
     r = client.post("/api/jobs", files={"file": (filename, content, "application/octet-stream")})
     assert r.status_code == 400
     assert r.json()["detail"]
@@ -355,7 +373,8 @@ def test_post_jobs_extractor_error_is_not_500(tmp_path, monkeypatch):
             raise RuntimeError("llm down")
 
     monkeypatch.setattr("ontocore.jobs.service.get_extractor", lambda name: Boom())
-    client = TestClient(create_app(data_dir=tmp_path))
+    data_dir = tmp_path / "data"
+    client = TestClient(_sync_app(data_dir=data_dir))
     saved = client.put(
         "/api/settings",
         json={
@@ -376,13 +395,17 @@ def test_post_jobs_extractor_error_is_not_500(tmp_path, monkeypatch):
         data={"provider_id": saved["id"], "model": "fake", "embed_model": "fake-embed", "embed_provider_id": saved["id"]},
     )
     assert r.status_code == 200
+    assert r.json()["status"] == "queued"
+    r = _start(client, r.json()["id"])
+    assert r.status_code == 200
     body = r.json()
     assert body["status"] == "failed"
-    assert body["error"] == "抽取失败"
+    assert body["error"] == "服务出错，请查看日志"
     assert "OC-" not in body["error"]
-    text = next((tmp_path / "logs").glob("ontocore_*.log")).read_text(encoding="utf-8")
+    text = next((data_dir / "logs").glob("ontocore_*.log")).read_text(encoding="utf-8")
     assert "llm down" in text
     assert "Traceback" in text
+    assert "OC-9001" in text
 
 
 def test_create_job_requires_provider_and_stores_guides(tmp_path, monkeypatch):
@@ -391,9 +414,9 @@ def test_create_job_requires_provider_and_stores_guides(tmp_path, monkeypatch):
     monkeypatch.setattr(
         JobService,
         "run",
-        lambda self, job_id, filename, data: self._jobs.set_status(job_id, "completed"),
+        lambda self, job_id, filename, data: self._jobs.set_status(job_id, "reviewable"),
     )
-    client = TestClient(create_app(data_dir=tmp_path))
+    client = TestClient(_sync_app(data_dir=tmp_path))
     client.put(
         "/api/settings",
         json={
@@ -431,6 +454,7 @@ def test_create_job_requires_provider_and_stores_guides(tmp_path, monkeypatch):
     )
     assert r.status_code == 200
     assert r.json()["extractor"] == "llm"
+    assert r.json()["status"] == "queued"
     assert r.json()["embed_model"] == "embed-x"
     assert r.json()["embed_provider_id"] == pid
     assert "https://ontocore.local/ns/working#Product" in r.json()["guide_object_iris"]
@@ -442,9 +466,9 @@ def test_create_job_uses_separate_embed_provider(tmp_path, monkeypatch):
     monkeypatch.setattr(
         JobService,
         "run",
-        lambda self, job_id, filename, data: self._jobs.set_status(job_id, "completed"),
+        lambda self, job_id, filename, data: self._jobs.set_status(job_id, "reviewable"),
     )
-    client = TestClient(create_app(data_dir=tmp_path))
+    client = TestClient(_sync_app(data_dir=tmp_path))
     saved = client.put(
         "/api/settings",
         json={
@@ -532,3 +556,303 @@ def test_accept_type_candidate_forwards_json_mode(tmp_path, monkeypatch):
     assert body.status_code == 200
     assert captured["mode"] == "overwrite"
     assert captured["target_iri"] == "https://ontocore.local/ns/working#Product"
+
+
+def _seed_provider(client: TestClient) -> str:
+    return client.put(
+        "/api/settings",
+        json={
+            "providers": [
+                {
+                    "label": "测",
+                    "prefix": "openai",
+                    "api_base": "https://example.invalid",
+                    "api_key": "sk",
+                    "model": "fake",
+                }
+            ]
+        },
+    ).json()["providers"][0]["id"]
+
+
+def test_post_jobs_async_returns_before_completed(tmp_path, monkeypatch):
+    from ontocore.jobs.service import JobService
+
+    started = threading.Event()
+    release = threading.Event()
+
+    def slow_run(self, job_id, filename, data):
+        started.set()
+        assert release.wait(timeout=5)
+        return self._jobs.set_status(job_id, "reviewable")
+
+    monkeypatch.setattr(JobService, "run", slow_run)
+    client = TestClient(create_app(data_dir=tmp_path, job_runner=JobRunner(sync=False)))
+    pid = _seed_provider(client)
+    response = client.post(
+        "/api/jobs",
+        files={"file": ("a.txt", b"hi", "text/plain")},
+        data={
+            "provider_id": pid,
+            "model": "fake",
+            "embed_model": "fake-embed",
+            "embed_provider_id": pid,
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "queued"
+    assert not started.is_set()
+    job_id = body["id"]
+    start = client.post(f"/api/jobs/{job_id}/start")
+    assert start.status_code == 200
+    assert started.wait(timeout=5)
+    release.set()
+    for _ in range(50):
+        got = client.get(f"/api/jobs/{job_id}").json()
+        if got["status"] == "reviewable":
+            break
+        time.sleep(0.05)
+    assert got["status"] == "reviewable"
+
+
+def test_post_jobs_sync_lists_job_when_completed(tmp_path, monkeypatch):
+    from ontocore.jobs.service import JobService
+
+    monkeypatch.setattr(
+        JobService,
+        "run",
+        lambda self, job_id, filename, data: self._jobs.set_status(job_id, "reviewable"),
+    )
+    client = TestClient(_sync_app(data_dir=tmp_path))
+    pid = _seed_provider(client)
+    response = client.post(
+        "/api/jobs",
+        files={"file": ("a.txt", b"hi", "text/plain")},
+        data={
+            "provider_id": pid,
+            "model": "fake",
+            "embed_model": "fake-embed",
+            "embed_provider_id": pid,
+        },
+    )
+    assert response.status_code == 200
+    job_id = response.json()["id"]
+    assert response.json()["status"] == "queued"
+    assert _start(client, job_id).status_code == 200
+    assert client.get(f"/api/jobs/{job_id}").json()["status"] == "reviewable"
+    listed = client.get("/api/jobs").json()
+    assert isinstance(listed, list)
+    assert any(item["id"] == job_id for item in listed)
+
+
+def test_startup_fails_interrupted_jobs(tmp_path):
+    from ontocore.error_catalog import fault_detail
+    from ontocore.jobs.store import JobStore
+
+    store = JobStore(str(tmp_path / "ontocore.db"))
+    queued = store.create("q.txt", "llm", "m")
+    running = store.create("r.txt", "llm", "m")
+    store.set_status(running.id, "running")
+    extracting = store.create("e.txt", "llm", "m")
+    store.set_status(extracting.id, "extracting")
+    merging = store.create("mg.txt", "llm", "m")
+    store.set_status(merging.id, "merging")
+    aligning = store.create("a.txt", "llm", "m")
+    store.set_status(aligning.id, "aligning")
+    done = store.create("d.txt", "llm", "m")
+    store.set_status(done.id, "completed")
+
+    client = TestClient(_sync_app(data_dir=tmp_path))
+    q = client.get(f"/api/jobs/{queued.id}").json()
+    r = client.get(f"/api/jobs/{running.id}").json()
+    e = client.get(f"/api/jobs/{extracting.id}").json()
+    mg = client.get(f"/api/jobs/{merging.id}").json()
+    a = client.get(f"/api/jobs/{aligning.id}").json()
+    d = client.get(f"/api/jobs/{done.id}").json()
+    assert q["status"] == "queued"
+    assert r["status"] == "failed"
+    assert r["error"] == fault_detail("OC-3108")
+    assert "OC-" not in r["error"]
+    assert e["status"] == "failed"
+    assert e["error"] == fault_detail("OC-3108")
+    assert mg["status"] == "failed"
+    assert mg["error"] == fault_detail("OC-3108")
+    assert a["status"] == "failed"
+    assert a["error"] == fault_detail("OC-3108")
+    assert d["status"] == "completed"
+
+
+def test_start_job_rejects_running_status(tmp_path, monkeypatch):
+    from ontocore.jobs.service import JobService
+
+    monkeypatch.setattr(
+        JobService,
+        "run",
+        lambda self, job_id, filename, data: self._jobs.set_status(job_id, "extracting"),
+    )
+    client = TestClient(_sync_app(data_dir=tmp_path))
+    pid = _seed_provider(client)
+    created = client.post(
+        "/api/jobs",
+        files={"file": ("a.txt", b"hi", "text/plain")},
+        data={
+            "provider_id": pid,
+            "model": "fake",
+            "embed_model": "fake-embed",
+            "embed_provider_id": pid,
+        },
+    ).json()
+    assert _start(client, created["id"]).status_code == 200
+    again = _start(client, created["id"])
+    assert again.status_code == 400
+    assert again.json()["code"] == "OC-1107"
+    assert again.json()["detail"] == "当前状态不能启动抽取"
+
+
+@pytest.mark.parametrize("terminal_status", ["completed", "reviewable", "reviewable_partial"])
+def test_restart_completed_job_resets_progress(tmp_path, monkeypatch, terminal_status):
+    from ontocore.jobs.service import JobService
+
+    phase = {"n": 0}
+    seen: dict = {}
+
+    def tracking_run(self, job_id, filename, data):
+        phase["n"] += 1
+        if phase["n"] == 1:
+            self._jobs.set_progress(job_id, 2, 2)
+            return self._jobs.set_status(job_id, terminal_status)
+        job = self._jobs.get(job_id)
+        seen["at_entry"] = (job.status, job.progress_done, job.progress_total, job.error)
+        return self._jobs.set_status(job_id, "extracting")
+
+    monkeypatch.setattr(JobService, "run", tracking_run)
+    client = TestClient(_sync_app(data_dir=tmp_path))
+    pid = _seed_provider(client)
+    created = client.post(
+        "/api/jobs",
+        files={"file": ("a.txt", b"hi", "text/plain")},
+        data={
+            "provider_id": pid,
+            "model": "fake",
+            "embed_model": "fake-embed",
+            "embed_provider_id": pid,
+        },
+    ).json()
+    job_id = created["id"]
+    assert _start(client, job_id).status_code == 200
+    done = client.get(f"/api/jobs/{job_id}").json()
+    assert done["status"] == terminal_status
+    assert done["progress_done"] == 2
+    assert done["progress_total"] == 2
+
+    restarted = _start(client, job_id)
+    assert restarted.status_code == 200
+    assert seen["at_entry"] == ("queued", 0, 0, None)
+    assert restarted.json()["status"] == "extracting"
+    assert restarted.json()["progress_done"] == 0
+    assert restarted.json()["progress_total"] == 0
+
+
+def test_patch_job_updates_queued_and_rejects_other_status(tmp_path, monkeypatch):
+    from ontocore.jobs.service import JobService
+
+    monkeypatch.setattr(
+        JobService,
+        "run",
+        lambda self, job_id, filename, data: self._jobs.set_status(job_id, "reviewable"),
+    )
+    client = TestClient(_sync_app(data_dir=tmp_path))
+    pid = _seed_provider(client)
+    created = client.post(
+        "/api/jobs",
+        files={"file": ("a.txt", b"hi", "text/plain")},
+        data={
+            "provider_id": pid,
+            "model": "fake",
+            "embed_model": "fake-embed",
+            "embed_provider_id": pid,
+        },
+    ).json()
+    job_id = created["id"]
+    patched = client.patch(
+        f"/api/jobs/{job_id}",
+        data={
+            "provider_id": pid,
+            "model": "fake-2",
+            "thinking": "true",
+            "embed_model": "embed-2",
+            "embed_provider_id": pid,
+            "guide_object_iris": "https://ontocore.local/ns/working#Product",
+        },
+    )
+    assert patched.status_code == 200
+    body = patched.json()
+    assert body["model"] == "fake-2"
+    assert body["thinking"] is True
+    assert body["embed_model"] == "embed-2"
+    assert "https://ontocore.local/ns/working#Product" in body["guide_object_iris"]
+    assert body["status"] == "queued"
+
+    replaced = client.patch(
+        f"/api/jobs/{job_id}",
+        files={"file": ("b.txt", b"new", "text/plain")},
+        data={
+            "provider_id": pid,
+            "model": "fake-2",
+            "embed_model": "embed-2",
+            "embed_provider_id": pid,
+        },
+    )
+    assert replaced.status_code == 200
+    assert replaced.json()["filename"] == "b.txt"
+    assert (tmp_path / "uploads" / job_id).read_bytes() == b"new"
+
+    assert _start(client, job_id).status_code == 200
+    assert client.get(f"/api/jobs/{job_id}").json()["status"] == "reviewable"
+    blocked = client.patch(
+        f"/api/jobs/{job_id}",
+        data={
+            "provider_id": pid,
+            "model": "fake-3",
+            "embed_model": "embed-3",
+            "embed_provider_id": pid,
+        },
+    )
+    assert blocked.status_code == 400
+    assert blocked.json()["code"] == "OC-1109"
+    assert blocked.json()["detail"] == "当前状态不能修改作业"
+
+
+def test_acceptance_legacy_completed_can_start_reextract(tmp_path, monkeypatch):
+    """§3/§7: legacy row status=completed can still POST /start for re-extract."""
+    from ontocore.jobs.service import JobService
+    from ontocore.jobs.store import JobStore
+    from ontocore.jobs.uploads import save_upload
+
+    store = JobStore(str(tmp_path / "ontocore.db"))
+    legacy = store.create("legacy.txt", "llm", "fake", provider_id="p", embed_model="e")
+    store.set_status(legacy.id, "completed")
+    store.set_progress(legacy.id, 5, 5)
+    save_upload(tmp_path, legacy.id, b"legacy body")
+
+    seen: dict = {}
+
+    def tracking_run(self, job_id, filename, data):
+        job = self._jobs.get(job_id)
+        seen["at_entry"] = (job.status, job.progress_done, job.progress_total, job.error)
+        return self._jobs.set_status(job_id, "extracting")
+
+    monkeypatch.setattr(JobService, "run", tracking_run)
+    client = TestClient(_sync_app(data_dir=tmp_path))
+    before = client.get(f"/api/jobs/{legacy.id}").json()
+    assert before["status"] == "completed"
+    assert before["progress_done"] == 5
+
+    started = _start(client, legacy.id)
+    assert started.status_code == 200
+    assert seen["at_entry"] == ("queued", 0, 0, None)
+    body = started.json()
+    assert body["status"] == "extracting"
+    assert body["progress_done"] == 0
+    assert body["progress_total"] == 0

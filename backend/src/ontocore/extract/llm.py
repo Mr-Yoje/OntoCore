@@ -77,10 +77,13 @@ class LiteLlmGateway:
         try:
             response = litellm.completion(**kwargs)
         except Exception as exc:
-            from ontocore.faults import log_fault, public_llm_message
+            from ontocore.error_catalog import fault_detail
+            from ontocore.faults import log_fault, map_provider_fault
 
-            log_fault(code="OC-3101", kind="business", detail=public_llm_message(str(exc)), exc=exc)
-            raise StructuredOutputError(public_llm_message(str(exc))) from exc
+            code = map_provider_fault(str(exc), domain="job")
+            detail = fault_detail(code)
+            log_fault(code=code, kind="business", detail=detail, exc=exc)
+            raise StructuredOutputError(code=code) from exc
 
         content = response.choices[0].message.content
         if not content:
@@ -98,10 +101,13 @@ class LiteLlmGateway:
                 api_base=self._api_base or None,
             )
         except Exception as exc:
-            from ontocore.faults import log_fault, public_llm_message
+            from ontocore.error_catalog import fault_detail
+            from ontocore.faults import log_fault, map_provider_fault
 
-            log_fault(code="OC-3101", kind="business", detail=public_llm_message(str(exc)), exc=exc)
-            raise StructuredOutputError(public_llm_message(str(exc))) from exc
+            code = map_provider_fault(str(exc), domain="job")
+            detail = fault_detail(code)
+            log_fault(code=code, kind="business", detail=detail, exc=exc)
+            raise StructuredOutputError(code=code) from exc
         vectors: list[list[float]] = []
         for item in response.data:
             if isinstance(item, dict):
@@ -111,8 +117,20 @@ class LiteLlmGateway:
         return vectors
 
     def complete_structured(self, schema: dict, messages: list[dict]) -> dict:
+        outgoing = list(messages)
+        parts: list[str] = []
+        if schema:
+            parts.append(
+                "输出必须符合以下 JSON Schema：\n"
+                + json.dumps(schema, ensure_ascii=False)
+            )
+        blob = " ".join([*parts, *(str(item.get("content", "")) for item in outgoing)])
+        if "json" not in blob.lower():
+            parts.insert(0, "只返回 JSON 对象。")
+        if parts:
+            outgoing.insert(0, {"role": "system", "content": "\n".join(parts)})
         content = self._call(
-            messages=messages,
+            messages=outgoing,
             extra={"response_format": {"type": "json_object"}},
         )
         try:

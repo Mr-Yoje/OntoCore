@@ -1,9 +1,10 @@
 # OntoCore 设计：Sigma 图渲染（A 档）
 
 日期：2026-09-15  
-状态：已确认，待实现计划  
+状态：已落地  
 范围：前端定义页与实例图页的图渲染替换  
-相关：[`2026-09-15-ontocore-objects-relations-design.md`](2026-09-15-ontocore-objects-relations-design.md)
+相关：[`2026-09-15-ontocore-objects-relations-design.md`](2026-09-15-ontocore-objects-relations-design.md)  
+实现：`TypeNetwork` / `InstanceNetwork` + `buildNetworkGraph`（graphology + ForceAtlas2 + sigma）；定义页与图页共用。
 
 ## 1. 背景与目标
 

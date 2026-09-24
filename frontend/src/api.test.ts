@@ -184,6 +184,104 @@ describe("copy", () => {
     expect(page.includes("<h1>数据源</h1>") || page.includes(">数据源</h1>")).toBe(true);
   });
 
+  it("upload page lists jobs with create and detail dialogs", () => {
+    const page = readFileSync("src/pages/UploadPage.tsx", "utf8");
+    const api = readFileSync("src/api.ts", "utf8");
+    const status = readFileSync("src/jobStatus.ts", "utf8");
+    expect(api.includes("listJobs")).toBe(true);
+    expect(api.includes("/api/jobs")).toBe(true);
+    expect(api.includes("startJob")).toBe(true);
+    expect(api.includes("/start")).toBe(true);
+    expect(api.includes("progress_done")).toBe(true);
+    expect(api.includes("progress_total")).toBe(true);
+    expect(api.includes("created_at")).toBe(true);
+    expect(page.includes("listJobs")).toBe(true);
+    expect(page.includes("新建抽取")).toBe(true);
+    expect(page.includes("保存作业")).toBe(true);
+    expect(page.includes("启动抽取")).toBe(true);
+    expect(page.includes("job-action-link")).toBe(true);
+    expect(page.includes("ClipText") || page.includes("cell-ellipsis")).toBe(true);
+    expect(page.includes("作业已保存")).toBe(true);
+    expect(page.includes("开始抽取")).toBe(false);
+    expect(page.includes("还没有作业")).toBe(true);
+    expect(page.includes("作业编号")).toBe(true);
+    expect(page.includes("抽取模型")).toBe(true);
+    expect(page.includes("嵌入模型")).toBe(true);
+    expect(page.includes("引导对象")).toBe(true);
+    expect(page.includes("引导关系")).toBe(true);
+    expect(page.includes("保存修改")).toBe(true);
+    expect(page.includes("updateJob")).toBe(true);
+    expect(api.includes("updateJob")).toBe(true);
+    expect(api.includes("method: \"PATCH\"") || api.includes("method: 'PATCH'")).toBe(true);
+    expect(api.includes("embed_model")).toBe(true);
+    expect(api.includes("guide_object_iris")).toBe(true);
+    expect(api.includes("guide_relation_iris")).toBe(true);
+    const listSection = page.slice(page.indexOf("<table"), page.indexOf('title="新建抽取"'));
+    expect(listSection.includes("<th>模型</th>") || listSection.includes(">模型</th>")).toBe(false);
+    expect(page.includes("jobStatusLabel")).toBe(true);
+    expect(page.includes("审阅")).toBe(true);
+    expect(page.includes("重新抽取")).toBe(true);
+    expect(page.includes("去审阅")).toBe(false);
+    expect(page.includes("setInterval") || page.includes("1500") || page.includes("1000")).toBe(true);
+    expect(page.includes('role="dialog"')).toBe(true);
+    expect(status.includes("待启动")).toBe(true);
+    expect(status.includes("排队中")).toBe(false);
+    expect(status.includes("抽取中")).toBe(true);
+    expect(status.includes("待审阅")).toBe(true);
+    expect(status.includes("已完成")).toBe(false);
+    expect(status.includes("部分完成")).toBe(false);
+    expect(status.includes("失败")).toBe(true);
+    expect(status.includes("待投影")).toBe(true);
+    const main = page.slice(page.indexOf("export function UploadPage"));
+    const mainReturn = main.slice(main.indexOf("return ("));
+    const listHint = Math.max(
+      mainReturn.indexOf("还没有作业"),
+      mainReturn.indexOf("job-list"),
+      mainReturn.indexOf("<table"),
+    );
+    const createDialog = mainReturn.indexOf('title="新建抽取"');
+    const formAt = mainReturn.indexOf("onSubmit={onSubmit}");
+    expect(listHint).toBeGreaterThan(-1);
+    expect(createDialog).toBeGreaterThan(-1);
+    expect(formAt).toBeGreaterThan(createDialog);
+  });
+
+  it("jobStatusLabel maps statuses from the async jobs spec", async () => {
+    const { jobStatusLabel } = await import("./jobStatus");
+    expect(jobStatusLabel("queued")).toBe("待启动");
+    expect(jobStatusLabel("extracting")).toBe("抽取中");
+    expect(jobStatusLabel("merging")).toBe("合并中");
+    expect(jobStatusLabel("aligning")).toBe("判重中");
+    expect(jobStatusLabel("reviewable")).toBe("待审阅");
+    expect(jobStatusLabel("reviewable_partial")).toBe("待审阅");
+    expect(jobStatusLabel("running")).toBe("抽取中");
+    expect(jobStatusLabel("completed")).toBe("待审阅");
+    expect(jobStatusLabel("partial")).toBe("待审阅");
+    expect(jobStatusLabel("failed")).toBe("失败");
+    expect(jobStatusLabel("types_accepted_graph_pending")).toBe("待投影");
+  });
+
+  it("jobStatus exports action sets for upload page", async () => {
+    const { RUNNING, STARTABLE, REVIEWABLE, EDITABLE } = await import("./jobStatus");
+    expect(RUNNING.has("extracting")).toBe(true);
+    expect(RUNNING.has("merging")).toBe(true);
+    expect(RUNNING.has("aligning")).toBe(true);
+    expect(RUNNING.has("running")).toBe(true);
+    expect(STARTABLE.has("queued")).toBe(true);
+    expect(STARTABLE.has("failed")).toBe(true);
+    expect(STARTABLE.has("reviewable")).toBe(true);
+    expect(STARTABLE.has("reviewable_partial")).toBe(true);
+    expect(STARTABLE.has("completed")).toBe(true);
+    expect(STARTABLE.has("partial")).toBe(true);
+    expect(STARTABLE.has("types_accepted_graph_pending")).toBe(true);
+    expect(REVIEWABLE.has("reviewable")).toBe(true);
+    expect(REVIEWABLE.has("reviewable_partial")).toBe(true);
+    expect(REVIEWABLE.has("completed")).toBe(true);
+    expect(REVIEWABLE.has("partial")).toBe(true);
+    expect(EDITABLE.has("queued")).toBe(true);
+    expect(EDITABLE.size).toBe(1);
+  });
+
   it("upload page selects guides not extractors", () => {
     const t = readFileSync("src/pages/UploadPage.tsx", "utf8");
     expect(t.includes("hybrid")).toBe(false);
@@ -206,6 +304,11 @@ describe("copy", () => {
     expect(t.includes("融合")).toBe(true);
     expect(t.includes("acceptType")).toBe(true);
     expect(t.includes("target_iri")).toBe(true);
+  });
+
+  it("review page loads candidates from job query", () => {
+    const t = readFileSync("src/pages/ReviewPage.tsx", "utf8");
+    expect(t.includes("api.typeCandidates(jobFromQuery)")).toBe(true);
   });
 
   it("shows flash messages as popup tips", () => {
@@ -259,6 +362,15 @@ describe("copy", () => {
 });
 
 describe("public error copy", () => {
+  it("offline and dump fallbacks match fault catalog copy", async () => {
+    const { sanitizePublicError } = await import("./api");
+    expect(sanitizePublicError("[Errno 11001] getaddrinfo failed")).toBe(
+      "无法连接服务，请检查网络",
+    );
+    expect(sanitizePublicError("litellm.InternalServerError HTML")).toBe("模型调用失败");
+    expect(sanitizePublicError("请填写 Base URL")).toBe("请填写 Base URL");
+  });
+
   it("never shows LiteLLM, stacks, or HTML in tips", async () => {
     const { tipText } = await import("./tips");
     const { ApiError } = await import("./api");

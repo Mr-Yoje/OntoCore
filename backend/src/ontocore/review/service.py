@@ -34,7 +34,19 @@ _MERGE_OBJECT_SCHEMA = {
         "label": {"type": "string"},
         "definition": {"type": "string"},
         "parent_iri": {"type": ["string", "null"]},
-        "attributes": {"type": "array"},
+        "attributes": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "iri": {"type": "string"},
+                    "label": {"type": "string"},
+                    "definition": {"type": "string"},
+                    "literal_kind": {"type": "string", "enum": ["text", "number", "date"]},
+                },
+                "required": ["iri", "label", "definition", "literal_kind"],
+            },
+        },
     },
     "required": ["label", "definition", "parent_iri", "attributes"],
 }
@@ -279,9 +291,8 @@ class ReviewService:
             self._accept_create(stored)
             return self._candidates.set_type_status(candidate_id, "accepted")
         if resolved in ("overwrite", "merge"):
-            kind_word = "对象" if stored.kind == "object" else "关系"
             if target_iri not in similar:
-                raise OntologyWriteError(f"请选择要对齐的已有{kind_word}")
+                raise OntologyWriteError(code="OC-2007")
             if resolved == "overwrite":
                 self._accept_overwrite(stored, target_iri)
             else:
@@ -289,7 +300,7 @@ class ReviewService:
             if stored.kind == "object":
                 self._accept_owned_attribute_candidates(stored.job_id, payload.get("iri"))
             return self._candidates.set_type_status(candidate_id, "accepted")
-        raise OntologyWriteError("不支持的导入方式")
+        raise OntologyWriteError()
 
     def reject_type(self, candidate_id: str) -> StoredTypeCandidate:
         return self._candidates.set_type_status(candidate_id, "rejected")
@@ -345,15 +356,15 @@ class ReviewService:
 
     def delete_object(self, iri: str) -> None:
         if self._graph.count_nodes_of_type(iri) > 0:
-            raise ConflictError("仍有实例占用该对象")
+            raise ConflictError(code="OC-2004")
         self._ontology.delete_object(iri)
 
     def delete_attribute(self, iri: str) -> None:
         if self._graph.count_nodes_with_attribute(iri) > 0:
-            raise ConflictError("仍有实例占用该属性")
+            raise ConflictError(code="OC-2005")
         self._ontology.delete_attribute(iri)
 
     def delete_relation(self, iri: str) -> None:
         if self._graph.count_rels_of_predicate(iri) > 0:
-            raise ConflictError("仍有实例占用该关系")
+            raise ConflictError(code="OC-2006")
         self._ontology.delete_relation(iri)

@@ -61,3 +61,50 @@ def test_no_embed_sends_all_unselected_to_judge():
     iris = {c["iri"] for c in payload["new_objects"][0]["candidates"]}
     assert f"{NS}Other" in iris
     assert f"{NS}Keep" not in iris
+
+
+def test_embed_finished_callback_fires_after_embed_attempt():
+    snap = TypeSnapshot(
+        objects=(OntoObject(iri=f"{NS}Other", label="其它", definition="d"),),
+        attributes=(), relations=(),
+    )
+    result = ExtractionResult(
+        object_candidates=[_obj(f"{NS}New", "新品")],
+        attribute_candidates=[], relation_candidates=[],
+        instance_suggestions=[], instance_rel_suggestions=[],
+    )
+    gw = FakeLlmGateway(
+        {"object_similar": {}, "relation_similar": {}},
+        fail_embed=True,
+    )
+    calls: list[str] = []
+    attach_similar(
+        result, snap, gw,
+        guide_object_iris=[], guide_relation_iris=[], use_embed=True,
+        on_embed_finished=lambda: calls.append("embed"),
+    )
+    assert calls == ["embed"]
+
+
+def test_judge_unknown_shape_raises():
+    from ontocore.errors import StructuredOutputError
+
+    snap = TypeSnapshot(
+        objects=(OntoObject(iri=f"{NS}Other", label="其它", definition="d"),),
+        attributes=(), relations=(),
+    )
+    result = ExtractionResult(
+        object_candidates=[_obj(f"{NS}New", "新品")],
+        attribute_candidates=[], relation_candidates=[],
+        instance_suggestions=[], instance_rel_suggestions=[],
+    )
+    gw = FakeLlmGateway({"ok": True})
+    try:
+        attach_similar(
+            result, snap, gw,
+            guide_object_iris=[], guide_relation_iris=[], use_embed=False,
+        )
+    except StructuredOutputError as exc:
+        assert exc.code == "OC-3103"
+        return
+    raise AssertionError("expected StructuredOutputError")

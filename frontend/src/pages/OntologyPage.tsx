@@ -1,5 +1,6 @@
 import { FormEvent, ReactNode, useCallback, useEffect, useState } from "react";
 import { api, localName } from "../api";
+import { ClipText } from "../clipText";
 import { TypeNetwork } from "../components/TypeNetwork";
 import { reportError, useTip } from "../tips";
 
@@ -490,11 +491,16 @@ export function OntologyPage() {
                 {attributes.map((a) => (
                   <tr key={a.iri}>
                     <td>
-                      {a.label}
-                      {a.owner_iri !== selectedIri ? "（自父对象）" : ""}
+                      <ClipText
+                        text={
+                          a.owner_iri !== selectedIri ? `${a.label}（自父对象）` : a.label
+                        }
+                      />
                     </td>
-                    <td>{a.definition}</td>
                     <td>
+                      <ClipText text={a.definition} />
+                    </td>
+                    <td className="cell-actions">
                       {a.owner_iri === selectedIri ? (
                         <button
                           type="button"

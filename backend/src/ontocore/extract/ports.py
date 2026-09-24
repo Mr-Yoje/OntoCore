@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from typing import Protocol
 
 from ontocore.extract.llm import LlmGateway
@@ -14,4 +15,5 @@ class Extractor(Protocol):
         llm: LlmGateway,
         *,
         guides: ExtractionGuides | None = None,
+        on_chunk_done: Callable[[int, int], None] | None = None,
     ) -> ExtractionResult: ...

@@ -5,8 +5,11 @@ import sys
 import traceback
 import uuid
 from pathlib import Path
+from typing import Literal
 
 from loguru import logger
+
+from ontocore.error_catalog import fault_detail
 
 KIND_BUSINESS = "business"
 KIND_SYSTEM = "system"
@@ -116,23 +119,42 @@ def _looks_like_dump(text: str) -> bool:
     return _EXCEPTION_CLASS.search(text) is not None
 
 
-def public_llm_message(raw: str) -> str:
-    text = (raw or "").strip() or "联通测试失败"
+_PROVIDER_CODES = {
+    "settings": {
+        "auth": "OC-5004",
+        "timeout": "OC-5005",
+        "offline": "OC-5006",
+        "not_found": "OC-5007",
+        "rate": "OC-5008",
+        "other": "OC-5009",
+    },
+    "job": {
+        "auth": "OC-3102",
+        "timeout": "OC-3104",
+        "offline": "OC-3105",
+        "not_found": "OC-3106",
+        "rate": "OC-3107",
+        "other": "OC-3101",
+    },
+}
+
+
+def map_provider_fault(raw: str, *, domain: Literal["settings", "job"]) -> str:
+    text = (raw or "").strip()
     low = text.lower()
+    codes = _PROVIDER_CODES[domain]
     if "credential" in low or "api_key" in low or "unauthorized" in low or "401" in low:
-        return "密钥无效或未填写，请检查 API Key"
+        return codes["auth"]
     if "timeout" in low or "timed out" in low:
-        return "连接超时，请检查 Base URL 或网络"
+        return codes["timeout"]
     if _looks_like_offline(low):
-        return "无法连接服务，请检查网络"
+        return codes["offline"]
     if "404" in low or "not found" in low:
-        return "接口不存在，请检查 Base URL 和模型名称"
+        return codes["not_found"]
     if "429" in low:
-        return "请求过于频繁，请稍后再试"
-    if _looks_like_dump(text) or not _has_cjk(text):
-        return "模型调用失败"
-    lines = [line for line in text.splitlines() if "Traceback" not in line and 'File "' not in line]
-    cleaned = "\n".join(lines).strip() or "模型调用失败"
-    if "OC-" in cleaned or _looks_like_dump(cleaned):
-        return "模型调用失败"
-    return cleaned[:400]
+        return codes["rate"]
+    return codes["other"]
+
+
+def public_llm_message(raw: str, *, domain: Literal["settings", "job"] = "settings") -> str:
+    return fault_detail(map_provider_fault(raw, domain=domain))

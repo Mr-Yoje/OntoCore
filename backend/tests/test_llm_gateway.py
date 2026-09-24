@@ -32,6 +32,35 @@ def test_lite_llm_prefers_json_object(monkeypatch):
     assert "thinking" not in captured["kwargs"]
 
 
+def test_complete_structured_prompt_contains_json(monkeypatch):
+    captured = _patch_litellm(monkeypatch, '{"ok": true}')
+    gw = LiteLlmGateway("openai/deepseek-chat")
+    gw.complete_structured(
+        {"type": "object"},
+        [
+            {"role": "system", "content": "根据文档抽取对象、属性和关系"},
+            {"role": "user", "content": "说明书正文"},
+        ],
+    )
+    blob = " ".join(str(m.get("content", "")) for m in captured["kwargs"]["messages"])
+    assert "json" in blob.lower()
+
+
+def test_complete_structured_includes_schema_in_prompt(monkeypatch):
+    captured = _patch_litellm(monkeypatch, '{"ok": true}')
+    gw = LiteLlmGateway("openai/deepseek-chat")
+    gw.complete_structured(
+        {"type": "object", "properties": {"object_candidates": {"type": "array"}}},
+        [
+            {"role": "system", "content": "根据文档抽取对象、属性和关系"},
+            {"role": "user", "content": "说明书正文"},
+        ],
+    )
+    blob = " ".join(str(m.get("content", "")) for m in captured["kwargs"]["messages"])
+    assert "object_candidates" in blob
+    assert "json" in blob.lower()
+
+
 def test_lite_llm_passes_endpoint_key_and_thinking(monkeypatch):
     captured = _patch_litellm(monkeypatch, '{"ok": true}')
     gw = LiteLlmGateway(

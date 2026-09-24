@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from dataclasses import fields
 
+from ontocore.error_catalog import fault_detail
 from ontocore.extract.llm import LlmGateway
 from ontocore.models import (
     AttributeCandidateDraft,
@@ -16,15 +17,127 @@ from ontocore.models import (
     TypeSnapshot,
 )
 
+_STR = {"type": "string"}
+_STR_NULL = {"type": ["string", "null"]}
+_NUM = {"type": "number"}
+
+
+def _object_item(properties: dict, required: list[str]) -> dict:
+    return {"type": "object", "properties": properties, "required": required}
+
+
 EXTRACTION_SCHEMA: dict = {
     "type": "object",
     "properties": {
-        "object_candidates": {"type": "array", "items": {"type": "object"}},
-        "attribute_candidates": {"type": "array", "items": {"type": "object"}},
-        "relation_candidates": {"type": "array", "items": {"type": "object"}},
-        "instance_suggestions": {"type": "array", "items": {"type": "object"}},
-        "instance_rel_suggestions": {"type": "array", "items": {"type": "object"}},
+        "object_candidates": {
+            "type": "array",
+            "items": _object_item(
+                {
+                    "iri": _STR,
+                    "label": _STR,
+                    "definition": _STR,
+                    "parent_iri": _STR_NULL,
+                    "evidence": _STR,
+                    "block_id": _STR,
+                    "confidence": _NUM,
+                },
+                ["iri", "label", "definition", "parent_iri", "evidence", "block_id", "confidence"],
+            ),
+        },
+        "attribute_candidates": {
+            "type": "array",
+            "items": _object_item(
+                {
+                    "iri": _STR,
+                    "label": _STR,
+                    "definition": _STR,
+                    "owner_iri": _STR,
+                    "literal_kind": {"type": "string", "enum": ["text", "number", "date"]},
+                    "evidence": _STR,
+                    "block_id": _STR,
+                    "confidence": _NUM,
+                },
+                [
+                    "iri",
+                    "label",
+                    "definition",
+                    "owner_iri",
+                    "literal_kind",
+                    "evidence",
+                    "block_id",
+                    "confidence",
+                ],
+            ),
+        },
+        "relation_candidates": {
+            "type": "array",
+            "items": _object_item(
+                {
+                    "iri": _STR,
+                    "label": _STR,
+                    "definition": _STR,
+                    "source_iri": _STR,
+                    "target_iri": _STR,
+                    "evidence": _STR,
+                    "block_id": _STR,
+                    "confidence": _NUM,
+                },
+                [
+                    "iri",
+                    "label",
+                    "definition",
+                    "source_iri",
+                    "target_iri",
+                    "evidence",
+                    "block_id",
+                    "confidence",
+                ],
+            ),
+        },
+        "instance_suggestions": {
+            "type": "array",
+            "items": _object_item(
+                {
+                    "local_id": _STR,
+                    "type_iri": _STR,
+                    "label": _STR,
+                    "data": {"type": "object"},
+                    "evidence": _STR,
+                    "block_id": _STR,
+                    "confidence": _NUM,
+                },
+                ["local_id", "type_iri", "label", "data", "evidence", "block_id", "confidence"],
+            ),
+        },
+        "instance_rel_suggestions": {
+            "type": "array",
+            "items": _object_item(
+                {
+                    "source_local_id": _STR,
+                    "target_local_id": _STR,
+                    "predicate_iri": _STR,
+                    "evidence": _STR,
+                    "block_id": _STR,
+                    "confidence": _NUM,
+                },
+                [
+                    "source_local_id",
+                    "target_local_id",
+                    "predicate_iri",
+                    "evidence",
+                    "block_id",
+                    "confidence",
+                ],
+            ),
+        },
     },
+    "required": [
+        "object_candidates",
+        "attribute_candidates",
+        "relation_candidates",
+        "instance_suggestions",
+        "instance_rel_suggestions",
+    ],
 }
 
 _DRAFT_TYPES = {
@@ -42,13 +155,33 @@ def _take(cls, item: dict):
 
 
 def result_from_dict(payload: dict) -> ExtractionResult:
+    empty_lists = {
+        "object_candidates": [],
+        "attribute_candidates": [],
+        "relation_candidates": [],
+        "instance_suggestions": [],
+        "instance_rel_suggestions": [],
+    }
+    if not isinstance(payload, dict) or not any(key in payload for key in _DRAFT_TYPES):
+        return ExtractionResult(
+            **empty_lists,
+            block_failures=[BlockFailure(block_id="", reason=fault_detail("OC-3101"))],
+        )
     kwargs: dict = {}
     failures: list[BlockFailure] = []
     for key, cls in _DRAFT_TYPES.items():
-        items = payload.get(key) or []
+        raw = payload.get(key, [])
+        if raw is None:
+            raw = []
+        if not isinstance(raw, list):
+            failures.append(BlockFailure(block_id="", reason=fault_detail("OC-3101")))
+            kwargs[key] = []
+            continue
         kept = []
-        for item in items:
+        for item in raw:
             try:
+                if not isinstance(item, dict):
+                    raise TypeError("draft is not an object")
                 cleaned = dict(item)
                 cleaned.pop("similar_to", None)
                 kept.append(_take(cls, cleaned))
@@ -56,7 +189,9 @@ def result_from_dict(payload: dict) -> ExtractionResult:
                 block_id = ""
                 if isinstance(item, dict):
                     block_id = str(item.get("block_id") or "")
-                failures.append(BlockFailure(block_id=block_id, reason="invalid draft"))
+                failures.append(
+                    BlockFailure(block_id=block_id, reason=fault_detail("OC-3101"))
+                )
         kwargs[key] = kept
     kwargs["block_failures"] = failures
     return ExtractionResult(**kwargs)

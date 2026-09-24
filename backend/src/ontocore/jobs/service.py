@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 from ontocore.candidates.store import CandidateStore
+from ontocore.error_catalog import fault_detail
 from ontocore.errors import AppError, IngressError
+from ontocore.extract.chunking import extract_texts
 from ontocore.extract.dedup import attach_similar
 from ontocore.extract.guides import build_guides
 from ontocore.extract.ingress import parse_upload
+from ontocore.extract.merge import merge_extraction_result
 from ontocore.extract.registry import get_extractor
 from ontocore.faults import KIND_BUSINESS, KIND_SYSTEM, log_fault
 from ontocore.jobs.store import Job, JobStore
@@ -20,6 +23,14 @@ def _has_candidates(result: ExtractionResult) -> bool:
         or result.instance_suggestions
         or result.instance_rel_suggestions
     )
+
+
+def _partial_reason(result: ExtractionResult, *, merge_failed: bool) -> str:
+    if result.block_failures:
+        return result.block_failures[0].reason or fault_detail("OC-3101")
+    if merge_failed:
+        return fault_detail("OC-3101")
+    return fault_detail("OC-3101")
 
 
 class _ChatAndEmbed:
@@ -80,16 +91,22 @@ class JobService:
         ]
 
     def run(self, job_id: str, filename: str, data: bytes) -> Job:
-        job = self._jobs.set_status(job_id, "running")
+        self._jobs.set_status(job_id, "extracting")
+        self._jobs.set_progress(job_id, 0, 0)
+        job = self._jobs.get(job_id)
         try:
             doc = parse_upload(filename, data)
         except IngressError as exc:
-            log_fault(code=exc.code, kind=exc.kind, detail=str(exc) or "无法提取文本", exc=exc)
-            self._jobs.set_status(job_id, "failed", error=str(exc) or "无法提取文本", error_kind=exc.kind)
+            detail = fault_detail(exc.code)
+            log_fault(code=exc.code, kind=exc.kind, detail=detail, exc=exc)
+            self._jobs.set_status(job_id, "failed", error=detail, error_kind=exc.kind)
             raise
         try:
+            n = len(extract_texts(doc))
+            self._jobs.set_progress(job_id, 0, n)
             extractor = get_extractor(job.extractor)
             llm = self._make_llm(job)
+            judge = self._judge_llm(job, llm)
             snapshot = self._ontology.snapshot()
             guides = build_guides(
                 snapshot,
@@ -97,46 +114,83 @@ class JobService:
                 relation_iris=job.guide_relation_iris,
                 instances=self._guide_instances(job),
             )
-            result = extractor.extract(doc, snapshot, llm, guides=guides)
+
+            def on_chunk_done(done: int, total: int) -> None:
+                self._jobs.set_progress(job_id, done, total)
+
+            result = extractor.extract(
+                doc, snapshot, llm, guides=guides, on_chunk_done=on_chunk_done,
+            )
+            extract_partial = bool(result.block_failures)
+
+            self._jobs.set_status(job_id, "merging")
+            self._jobs.set_progress(job_id, 0, 0)
+            embed_fn = judge.embed if job.embed_model and hasattr(judge, "embed") else None
+
+            def on_cluster_done(done: int, total: int) -> None:
+                self._jobs.set_progress(job_id, done, total)
+
+            result, merge_failed = merge_extraction_result(
+                result,
+                llm,
+                embed=embed_fn,
+                on_cluster_done=on_cluster_done,
+            )
+
+            self._jobs.set_status(job_id, "aligning")
+            self._jobs.set_progress(job_id, 0, 2)
             if result.object_candidates or result.relation_candidates:
                 try:
                     attach_similar(
                         result,
                         snapshot,
-                        self._judge_llm(job, llm),
+                        judge,
                         guide_object_iris=job.guide_object_iris,
                         guide_relation_iris=job.guide_relation_iris,
                         use_embed=bool(job.embed_model),
+                        on_embed_finished=lambda: self._jobs.set_progress(job_id, 1, 2),
                     )
+                    self._jobs.set_progress(job_id, 2, 2)
                 except Exception as exc:
+                    detail = fault_detail("OC-3103")
                     log_fault(
                         code="OC-3103",
                         kind=KIND_BUSINESS,
-                        detail="判重失败",
+                        detail=detail,
                         exc=exc,
                     )
                     self._candidates.replace_job_results(job_id, result)
                     return self._jobs.set_status(
-                        job_id, "partial", error="判重失败", error_kind=KIND_BUSINESS,
+                        job_id,
+                        "reviewable_partial",
+                        error=detail,
+                        error_kind=KIND_BUSINESS,
                     )
+            else:
+                self._jobs.set_progress(job_id, 2, 2)
+
             self._candidates.replace_job_results(job_id, result)
         except AppError as exc:
-            log_fault(code=exc.code, kind=exc.kind, detail=str(exc) or exc.message, exc=exc)
+            detail = exc.message
+            log_fault(code=exc.code, kind=exc.kind, detail=detail, exc=exc)
             return self._jobs.set_status(
-                job_id, "failed", error=str(exc) or exc.message, error_kind=exc.kind,
+                job_id, "failed", error=detail, error_kind=exc.kind,
             )
         except Exception as exc:
-            log_fault(code="OC-9001", kind=KIND_SYSTEM, detail=str(exc) or "抽取失败", exc=exc)
+            detail = fault_detail("OC-9001")
+            log_fault(code="OC-9001", kind=KIND_SYSTEM, detail=detail, exc=exc)
             return self._jobs.set_status(
-                job_id, "failed", error="抽取失败", error_kind=KIND_SYSTEM,
+                job_id, "failed", error=detail, error_kind=KIND_SYSTEM,
             )
-        if result.block_failures:
-            msg = result.block_failures[0].reason or "抽取失败"
+
+        has_partial = extract_partial or merge_failed or bool(result.block_failures)
+        if has_partial:
+            msg = _partial_reason(result, merge_failed=merge_failed)
             if _has_candidates(result):
                 return self._jobs.set_status(
-                    job_id, "partial", error=msg, error_kind=KIND_BUSINESS,
+                    job_id, "reviewable_partial", error=msg, error_kind=KIND_BUSINESS,
                 )
             return self._jobs.set_status(
                 job_id, "failed", error=msg, error_kind=KIND_BUSINESS,
             )
-        return self._jobs.set_status(job_id, "completed")
+        return self._jobs.set_status(job_id, "reviewable")

@@ -16,11 +16,10 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from ontocore.candidates.store import CandidateStore
 from ontocore.constants import NS
+from ontocore.error_catalog import fault_detail
 from ontocore.errors import (
     AppError,
     BusinessError,
-    GraphUnavailable,
-    OntologyWriteError,
     StructuredOutputError,
 )
 from ontocore.extract.llm import LiteLlmGateway
@@ -30,12 +29,14 @@ from ontocore.faults import (
     configure_logging,
     fault_body,
     log_fault,
+    map_provider_fault,
     new_request_id,
-    public_llm_message,
 )
 from ontocore.graph.memory import MemoryGraphRepository
 from ontocore.graph.neo4j_repo import Neo4jGraphRepository
 from ontocore.graph.projector import Projector
+from ontocore.jobs.runner import JobRunner
+from ontocore.jobs.uploads import load_upload, save_upload
 from ontocore.jobs.service import JobService
 from ontocore.jobs.store import JobStore
 from ontocore.models import OntoAttribute, OntoObject, OntoRelation
@@ -133,23 +134,6 @@ def _dump(value: Any) -> Any:
     return value
 
 
-def _probe_detail(raw: str) -> str:
-    return public_llm_message(raw)
-
-
-def _write_detail(exc: OntologyWriteError) -> str:
-    raw = str(exc) or "写入失败"
-    mapped = (
-        raw.replace("attribute", "属性")
-        .replace("relation", "关系")
-        .replace("object", "对象")
-        .replace("property", "属性")
-    )
-    if "对象" not in mapped and "属性" not in mapped and "关系" not in mapped:
-        return f"无法写入对象：{mapped}"
-    return mapped
-
-
 def _provider_creds(root: Path, body: ProbeBody) -> tuple[str, str, str]:
     current = load_settings(root)
     saved = find_provider(current, body.provider_id)
@@ -185,6 +169,7 @@ def create_app(
     data_dir: str | Path | None = None,
     graph=None,
     llm_factory=None,
+    job_runner: JobRunner | None = None,
 ) -> FastAPI:
     root = Path(data_dir) if data_dir is not None else Path(os.environ.get("ONTOCORE_DATA_DIR", "./data"))
     root.mkdir(parents=True, exist_ok=True)
@@ -210,10 +195,18 @@ def create_app(
 
     factory = llm_factory or _llm_from_settings
     job_service = JobService(jobs, candidates, ontology, factory, graph_repo)
+    runner = job_runner if job_runner is not None else JobRunner(sync=False)
+    runner.bind(job_service.run)
     review = ReviewService(candidates, ontology, projector, jobs, graph_repo, factory)
+
+    def fail_interrupted_jobs() -> None:
+        jobs.fail_interrupted_jobs(error=fault_detail("OC-3108"), error_kind=KIND_BUSINESS)
+
+    fail_interrupted_jobs()
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
+        fail_interrupted_jobs()
         yield
         ontology.close()
 
@@ -239,6 +232,7 @@ def create_app(
     app.state.projector = projector
     app.state.candidates = candidates
     app.state.jobs = jobs
+    app.state.job_runner = runner
     app.state.review = review
 
     @app.middleware("http")
@@ -270,17 +264,12 @@ def create_app(
 
     @app.exception_handler(AppError)
     async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
-        detail = str(exc) or exc.message
-        if isinstance(exc, OntologyWriteError):
-            detail = _write_detail(exc)
-        if isinstance(exc, GraphUnavailable):
-            detail = "图不可用"
         return _fault(
             request,
             status=exc.http_status,
             code=exc.code,
             kind=exc.kind,
-            detail=detail,
+            detail=exc.message,
             exc=exc,
         )
 
@@ -291,7 +280,7 @@ def create_app(
             status=404,
             code="OC-1004",
             kind=KIND_BUSINESS,
-            detail="未找到",
+            detail=fault_detail("OC-1004"),
             exc=exc,
         )
 
@@ -306,7 +295,7 @@ def create_app(
             status=500,
             code="OC-9001",
             kind=KIND_SYSTEM,
-            detail="服务出错，请查看日志",
+            detail=fault_detail("OC-9001"),
             exc=exc,
         )
 
@@ -438,7 +427,7 @@ def create_app(
         ontology.import_turtle(ttl, force=force)
         return {"ok": True}
 
-    @app.post("/api/jobs", summary="上传并抽取")
+    @app.post("/api/jobs", summary="保存抽取作业")
     async def create_job(
         file: UploadFile = File(...),
         extractor: str | None = Form(None),
@@ -482,8 +471,91 @@ def create_app(
             guide_relation_iris=guide_relation_iris,
             guide_instance_iris=guide_instance_iris,
         )
-        job = job_service.run(job.id, filename, data)
-        return _dump(job)
+        save_upload(root, job.id, data)
+        return _dump(jobs.get(job.id))
+
+    @app.patch("/api/jobs/{job_id}", summary="修改待启动作业")
+    async def patch_job(
+        job_id: str,
+        file: UploadFile | None = File(None),
+        provider_id: str | None = Form(None),
+        model: str | None = Form(None),
+        thinking: bool = Form(False),
+        embed_model: str | None = Form(None),
+        embed_provider_id: str | None = Form(None),
+        guide_object_iris: list[str] = Form(default=[]),
+        guide_relation_iris: list[str] = Form(default=[]),
+        guide_instance_iris: list[str] = Form(default=[]),
+    ):
+        try:
+            job = jobs.get(job_id)
+        except KeyError as exc:
+            raise BusinessError(code="OC-1004") from exc
+        if job.status != "queued":
+            raise BusinessError(code="OC-1109")
+        chosen_model = (model or "").strip()
+        if not provider_id:
+            raise BusinessError("请选择供应商", code="OC-1101")
+        if not chosen_model:
+            raise BusinessError("请选择抽取模型", code="OC-1102")
+        chosen_embed = (embed_model or "").strip()
+        if not chosen_embed:
+            raise BusinessError("请选择嵌入模型", code="OC-1103")
+        chosen_embed_provider = (embed_provider_id or "").strip()
+        if not chosen_embed_provider:
+            raise BusinessError("请选择嵌入供应商", code="OC-1104")
+        settings = load_settings(root)
+        if find_provider(settings, provider_id) is None:
+            raise BusinessError("未找到所选供应商，请先在设置中添加", code="OC-1105")
+        if find_provider(settings, chosen_embed_provider) is None:
+            raise BusinessError("未找到所选嵌入供应商，请先在设置中添加", code="OC-1106")
+        new_filename: str | None = None
+        if file is not None and (file.filename or "").strip():
+            data = await file.read()
+            new_filename = file.filename or job.filename
+            save_upload(root, job_id, data)
+        jobs.update(
+            job_id,
+            filename=new_filename,
+            model=chosen_model,
+            provider_id=provider_id,
+            thinking=thinking,
+            embed_model=chosen_embed,
+            embed_provider_id=chosen_embed_provider,
+            guide_object_iris=guide_object_iris,
+            guide_relation_iris=guide_relation_iris,
+            guide_instance_iris=guide_instance_iris,
+        )
+        return _dump(jobs.get(job_id))
+
+    @app.post("/api/jobs/{job_id}/start", summary="启动抽取")
+    def start_job(job_id: str):
+        try:
+            job = jobs.get(job_id)
+        except KeyError as exc:
+            raise BusinessError(code="OC-1004") from exc
+        if job.status not in (
+            "queued",
+            "failed",
+            "reviewable",
+            "reviewable_partial",
+            "completed",
+            "partial",
+            "types_accepted_graph_pending",
+        ):
+            raise BusinessError(code="OC-1107")
+        data = load_upload(root, job_id)
+        if data is None:
+            raise BusinessError(code="OC-1108")
+        if job.status != "queued":
+            jobs.set_status(job_id, "queued", error=None, error_kind=None)
+            jobs.set_progress(job_id, 0, 0)
+        runner.submit(job_id, job.filename, data)
+        return _dump(jobs.get(job_id))
+
+    @app.get("/api/jobs", summary="全部作业")
+    def list_jobs():
+        return _dump(jobs.list_jobs())
 
     @app.get("/api/jobs/{job_id}", summary="作业状态")
     def get_job(job_id: str):
@@ -543,21 +615,26 @@ def create_app(
     def list_settings_models(body: ProbeBody):
         _prefix, api_base, api_key = _provider_creds(root, body)
         if not api_base:
-            raise BusinessError("请填写 Base URL", code="OC-5001")
+            raise BusinessError(code="OC-5001")
         if not api_key:
-            raise BusinessError("请填写 API Key", code="OC-5001")
+            raise BusinessError(code="OC-5002")
         try:
             models = list_provider_models(api_base, api_key)
         except (RuntimeError, ValueError) as exc:
-            raise BusinessError(_probe_detail(str(exc)), code="OC-5001") from exc
+            code = map_provider_fault(str(exc), domain="settings")
+            raise BusinessError(code=code) from exc
         return {"models": models}
 
     @app.post("/api/settings/test", summary="测试模型联通")
     def test_settings(body: ProbeBody):
         model = body.model.strip()
         if not model:
-            raise BusinessError("请选择具体模型", code="OC-5001")
+            raise BusinessError(code="OC-5003")
         prefix, api_base, api_key = _provider_creds(root, body)
+        if not api_base:
+            raise BusinessError(code="OC-5001")
+        if not api_key:
+            raise BusinessError(code="OC-5002")
         litellm_model = resolve_litellm_model(prefix, model)
         gateway = LiteLlmGateway(
             litellm_model,
@@ -568,7 +645,9 @@ def create_app(
         try:
             preview = gateway.probe()
         except StructuredOutputError as exc:
-            raise BusinessError(_probe_detail(str(exc)), code="OC-5001") from exc
+            raw = str(exc.__cause__) if exc.__cause__ is not None else str(exc)
+            code = map_provider_fault(raw, domain="settings")
+            raise BusinessError(code=code) from exc
         return {"ok": True, "model": litellm_model, "preview": preview}
 
     return app

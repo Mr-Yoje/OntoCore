@@ -12,3 +12,4 @@ alwaysApply: true
 - 改界面必须打开页面走主路径，不能只靠截图。
 - 产品文案只用：对象、属性、关系、定义、实例、父对象。禁止：类、TBox、ABox、对象属性、数据属性、领域包。
 - 前端视觉参考 Dify 浅色工作台，不要退回旧的暗色测绘台风。
+- 新增会失败的路径：必须挂现有错误码体系（`ontocore.errors` / `OC-xxxx`），抛异常时带中文提示；HTTP 走统一 `{detail,code,kind,request_id}`；界面 tips 不展示故障码。新码写入 `docs/superpowers/specs/2026-09-21-fault-logging-design.md` 码表。详见 `docs/dev-standards.md`「错误码与异常提示」。

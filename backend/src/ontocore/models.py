@@ -6,8 +6,18 @@ TypeCandidateKind = Literal["object", "attribute", "relation"]
 TypeCandidateStatus = Literal["proposed", "accepted", "rejected"]
 InstanceCandidateStatus = Literal["proposed", "projected", "skipped"]
 JobStatus = Literal[
-    "queued", "running", "failed", "partial", "completed",
+    "queued",
+    "extracting",
+    "merging",
+    "aligning",
+    "reviewable",
+    "reviewable_partial",
+    "failed",
     "types_accepted_graph_pending",
+    # legacy read-compatible
+    "running",
+    "completed",
+    "partial",
 ]
 
 

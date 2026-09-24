@@ -1,5 +1,6 @@
 import { FormEvent, ReactNode, useEffect, useState } from "react";
 import { api, exportJsonldHref, exportTurtleHref, type ProviderDraft } from "../api";
+import { ClipText } from "../clipText";
 import { providerSaveTip } from "../providerDraft";
 import { reportError, useTip } from "../tips";
 
@@ -343,11 +344,15 @@ export function SettingsPage() {
                     }
                   >
                     <header className="vendor-card-head">
-                      <h3>{title}</h3>
+                      <h3 title={title}>{title}</h3>
                       <span className="muted">{String(index + 1).padStart(2, "0")}</span>
                     </header>
-                    <p className="muted">{row.prefix}</p>
-                    <p className="muted vendor-tile-model">{model}</p>
+                    <p className="muted">
+                      <ClipText text={row.prefix} />
+                    </p>
+                    <p className="muted vendor-tile-model">
+                      <ClipText text={model} />
+                    </p>
                   </button>
                 );
               })}
